@@ -60,7 +60,7 @@ const generateHtml = (report) => {
   const addedSection = generateAddedSection(report.changes.added);
   const upgradedSection = generateUpgradedSection(report.changes.upgraded, report.changelogs);
   const removedSection = generateRemovedSection(report.changes.removed);
-  const modifiedSection = generateModifiedSection(report.changes.modified || []);
+  const modifiedSection = generateModifiedSection(report.changes.modified || [], report.changelogs);
   const errorsSection = generateErrorsSection(report.errors || {});
   
   // Format timestamp
@@ -549,9 +549,10 @@ if (import.meta.url === `file://${fileURLToPath(import.meta.url)}`) {
 /**
  * Generate HTML section for modified dependencies (namespace changes)
  * @param {Array} modified - Modified dependencies
+ * @param {Object} changelogs - Changelogs for dependencies
  * @returns {string} - HTML content
  */
-const generateModifiedSection = (modified) => {
+const generateModifiedSection = (modified, changelogs = {}) => {
   if (modified.length === 0) {
     return `
       <h2>Modified Dependencies (Namespace Changes)</h2>
@@ -575,6 +576,37 @@ const generateModifiedSection = (modified) => {
     `;
   }).join('');
   
+  // Generate changelog sections for modified dependencies
+  const changelogSections = modified
+    .filter(dep => changelogs[dep.newName])
+    .map(dep => {
+      const changelog = changelogs[dep.newName];
+      const repoUrl = changelog.repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+      
+      const commits = changelog.commits.map(commit => {
+        const commitUrl = `${repoUrl}/commit/${commit.hash}`;
+        return `
+          <div class="commit">
+            <div>
+              <a href="${commitUrl}" target="_blank" class="commit-hash">${commit.hash.substring(0, 7)}</a>
+              <span class="commit-author">${commit.author}</span>
+              <span class="commit-date">${commit.date}</span>
+            </div>
+            <div class="commit-message">${escapeHtml(commit.message)}</div>
+          </div>
+        `;
+      }).join('');
+      
+      return `
+        <h3>${dep.oldName} → ${dep.newName}: ${dep.oldVersion} → ${dep.newVersion}</h3>
+        <div class="changelog">
+          <p>Repository: <a href="${repoUrl}" target="_blank">${repoUrl}</a></p>
+          <p>Commits: ${changelog.commits.length}</p>
+          ${commits}
+        </div>
+      `;
+    }).join('');
+  
   return `
     <h2>Modified Dependencies (Namespace Changes)</h2>
     <p>These dependencies have changed their package name (typically from/to a namespace):</p>
@@ -591,6 +623,11 @@ const generateModifiedSection = (modified) => {
         ${rows}
       </tbody>
     </table>
+    
+    ${changelogSections ? `
+      <h3>Changelogs for Modified Dependencies</h3>
+      ${changelogSections}
+    ` : ''}
   `;
 };
 

@@ -603,6 +603,21 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     // Get changelogs for upgraded dependencies
     console.log('Generating changelogs for upgraded dependencies...');
     const { changelogs, errors } = await getChangelogs(comparison.upgraded, newerVersionDir, reposDir);
+  
+    // Get changelogs for modified dependencies (namespace changes)
+    console.log('Generating changelogs for modified dependencies...');
+    const modifiedDepsForChangelog = comparison.modified.map(dep => ({
+      name: dep.newName,
+      oldVersion: dep.oldVersion,
+      newVersion: dep.newVersion,
+      changeType: 'namespace'
+    }));
+    const { changelogs: modifiedChangelogs, errors: modifiedErrors } = 
+      await getChangelogs(modifiedDepsForChangelog, newerVersionDir, reposDir);
+  
+    // Merge changelogs and errors
+    Object.assign(changelogs, modifiedChangelogs);
+    Object.assign(errors, modifiedErrors);
     
     // Create report
     const report = {
