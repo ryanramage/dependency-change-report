@@ -125,12 +125,14 @@ const getRepositoryUrl = async (packageDir) => {
  * @param {string} repoUrl - Repository URL
  * @param {string} oldVersion - Old version
  * @param {string} newVersion - New version
+ * @param {string} reposDir - Repository directory
  * @returns {Promise<Array>} - Array of commit objects
  */
-const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
+const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
   try {
-    // Create a temporary directory for the repository
-    const tempDir = join(os.tmpdir(), `repo-${Date.now()}`);
+    // Create a directory for the repository within the repos directory
+    const packageName = basename(repoUrl, '.git');
+    const tempDir = join(reposDir, `${packageName}-history`);
     await mkdir(tempDir, { recursive: true });
     
     // Clone the repository
@@ -382,9 +384,10 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
  * Get changelog for upgraded dependencies
  * @param {Array} upgradedDeps - Array of upgraded dependencies
  * @param {string} newerVersionDir - Directory of the newer version
+ * @param {string} reposDir - Repository directory
  * @returns {Promise<Object>} - Object mapping package names to changelogs
  */
-const getChangelogs = async (upgradedDeps, newerVersionDir) => {
+const getChangelogs = async (upgradedDeps, newerVersionDir, reposDir) => {
   const changelogs = {};
   
   for (const dep of upgradedDeps) {
@@ -415,7 +418,7 @@ const getChangelogs = async (upgradedDeps, newerVersionDir) => {
       console.log(`Getting changelog for ${dep.name} from ${cleanRepoUrl} between ${dep.oldVersion} and ${dep.newVersion}`);
       
       try {
-        const commits = await getCommitHistory(cleanRepoUrl, dep.oldVersion, dep.newVersion);
+        const commits = await getCommitHistory(cleanRepoUrl, dep.oldVersion, dep.newVersion, reposDir);
         if (commits.length > 0) {
           changelogs[dep.name] = {
             repoUrl: cleanRepoUrl,
@@ -526,7 +529,7 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     
     // Get changelogs for upgraded dependencies
     console.log('Generating changelogs for upgraded dependencies...');
-    const changelogs = await getChangelogs(comparison.upgraded, newerVersionDir);
+    const changelogs = await getChangelogs(comparison.upgraded, newerVersionDir, reposDir);
     
     // Create report
     const report = {
