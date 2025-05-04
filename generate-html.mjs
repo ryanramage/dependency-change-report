@@ -52,6 +52,7 @@ const generateHtml = (report) => {
   const addedCount = report.changes.added.length;
   const upgradedCount = report.changes.upgraded.length;
   const removedCount = report.changes.removed.length;
+  const modifiedCount = report.changes.modified ? report.changes.modified.length : 0;
   const changelogCount = Object.keys(report.changelogs).length;
   const errorCount = report.errors ? Object.keys(report.errors).length : 0;
   
@@ -59,6 +60,7 @@ const generateHtml = (report) => {
   const addedSection = generateAddedSection(report.changes.added);
   const upgradedSection = generateUpgradedSection(report.changes.upgraded, report.changelogs);
   const removedSection = generateRemovedSection(report.changes.removed);
+  const modifiedSection = generateModifiedSection(report.changes.modified || []);
   const errorsSection = generateErrorsSection(report.errors || {});
   
   // Format timestamp
@@ -314,6 +316,10 @@ const generateHtml = (report) => {
         <div class="summary-count">${removedCount}</div>
         <div>Dependencies Removed</div>
       </div>
+      <div class="summary-item" style="background-color: rgba(155, 89, 182, 0.2);">
+        <div class="summary-count">${modifiedCount}</div>
+        <div>Dependencies Modified</div>
+      </div>
       <div class="summary-item changelogs">
         <div class="summary-count">${changelogCount}</div>
         <div>Changelogs Generated</div>
@@ -327,6 +333,7 @@ const generateHtml = (report) => {
     ${addedSection}
     ${upgradedSection}
     ${removedSection}
+    ${modifiedSection}
     ${errorsSection}
     
     <footer>
@@ -538,6 +545,54 @@ const main = async () => {
 if (import.meta.url === `file://${fileURLToPath(import.meta.url)}`) {
   main();
 }
+
+/**
+ * Generate HTML section for modified dependencies (namespace changes)
+ * @param {Array} modified - Modified dependencies
+ * @returns {string} - HTML content
+ */
+const generateModifiedSection = (modified) => {
+  if (modified.length === 0) {
+    return `
+      <h2>Modified Dependencies (Namespace Changes)</h2>
+      <p class="empty-message">No dependencies had namespace changes.</p>
+    `;
+  }
+  
+  const rows = modified.map(dep => {
+    const oldNpmUrl = `https://www.npmjs.com/package/${dep.oldName}`;
+    const newNpmUrl = `https://www.npmjs.com/package/${dep.newName}`;
+    const oldVersionUrl = `https://www.npmjs.com/package/${dep.oldName}/v/${dep.oldVersion}`;
+    const newVersionUrl = `https://www.npmjs.com/package/${dep.newName}/v/${dep.newVersion}`;
+    
+    return `
+      <tr>
+        <td><a href="${oldNpmUrl}" target="_blank">${dep.oldName}</a></td>
+        <td><a href="${newNpmUrl}" target="_blank">${dep.newName}</a></td>
+        <td><a href="${oldVersionUrl}" target="_blank">${dep.oldVersion}</a></td>
+        <td><a href="${newVersionUrl}" target="_blank">${dep.newVersion}</a></td>
+      </tr>
+    `;
+  }).join('');
+  
+  return `
+    <h2>Modified Dependencies (Namespace Changes)</h2>
+    <p>These dependencies have changed their package name (typically from/to a namespace):</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Old Package</th>
+          <th>New Package</th>
+          <th>Old Version</th>
+          <th>New Version</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+};
 
 /**
  * Generate HTML section for errors encountered

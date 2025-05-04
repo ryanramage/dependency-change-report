@@ -470,11 +470,29 @@ const compareDependencies = (oldDeps, newDeps) => {
   const added = [];
   const removed = [];
   const upgraded = [];
+  const modified = [];
 
-  // Find added and upgraded dependencies
+  // Track packages that might have changed namespaces
+  const potentialNamespaceChanges = new Map();
+  
+  // Helper function to get the base name without namespace
+  const getBaseName = (name) => {
+    return name.includes('/') ? name.split('/').pop() : name;
+  };
+  
+  // Helper function to check if a name is namespaced
+  const isNamespaced = (name) => name.includes('/');
+
+  // First pass: Find added and upgraded dependencies
   for (const [name, info] of Object.entries(newDeps)) {
     if (!oldDeps[name]) {
-      added.push({ name, version: info.version });
+      // Store potentially renamed packages for later processing
+      const baseName = getBaseName(name);
+      potentialNamespaceChanges.set(baseName, {
+        newName: name,
+        newVersion: info.version,
+        type: 'added'
+      });
     } else if (oldDeps[name].version !== info.version) {
       const oldVersion = oldDeps[name].version;
       const newVersion = info.version;
@@ -503,14 +521,47 @@ const compareDependencies = (oldDeps, newDeps) => {
     }
   }
 
-  // Find removed dependencies
-  for (const name of Object.keys(oldDeps)) {
+  // Second pass: Find removed dependencies and check for namespace changes
+  for (const [name, info] of Object.entries(oldDeps)) {
     if (!newDeps[name]) {
-      removed.push({ name, version: oldDeps[name].version });
+      const baseName = getBaseName(name);
+      
+      // Check if this might be a namespace change
+      if (potentialNamespaceChanges.has(baseName)) {
+        const match = potentialNamespaceChanges.get(baseName);
+        
+        // This is likely a namespace change (e.g., pkg -> @org/pkg or vice versa)
+        modified.push({
+          oldName: name,
+          newName: match.newName,
+          oldVersion: info.version,
+          newVersion: match.newVersion,
+          changeType: 'namespace'
+        });
+        
+        // Remove from potential namespace changes to avoid double-counting
+        potentialNamespaceChanges.delete(baseName);
+      } else {
+        // Store potentially renamed packages for later processing
+        potentialNamespaceChanges.set(baseName, {
+          oldName: name,
+          oldVersion: info.version,
+          type: 'removed'
+        });
+      }
+    }
+  }
+  
+  // Process remaining potential namespace changes
+  for (const [baseName, data] of potentialNamespaceChanges.entries()) {
+    if (data.type === 'added') {
+      added.push({ name: data.newName, version: data.newVersion });
+    } else if (data.type === 'removed') {
+      removed.push({ name: data.oldName, version: data.oldVersion });
     }
   }
 
-  return { added, removed, upgraded };
+  return { added, removed, upgraded, modified };
 };
 
 /**
@@ -596,6 +647,7 @@ const main = async () => {
     console.log(`Added dependencies: ${report.changes.added.length}`);
     console.log(`Upgraded dependencies: ${report.changes.upgraded.length}`);
     console.log(`Removed dependencies: ${report.changes.removed.length}`);
+    console.log(`Modified dependencies (namespace changes): ${report.changes.modified ? report.changes.modified.length : 0}`);
     
     const changelogCount = Object.keys(report.changelogs).length;
     const errorCount = Object.keys(report.errors).length;
