@@ -187,16 +187,21 @@ const getChangelogs = async (upgradedDeps, newerVersionDir) => {
       // Clean the repository URL and convert to git URL for authentication
       let cleanRepoUrl = repoUrl.replace(/^git\+/, '');
       
+      // Remove .git extension if present (we'll add it back later if needed)
+      cleanRepoUrl = cleanRepoUrl.replace(/\.git$/, '');
+      
       // Handle GitHub shorthand (github:user/repo)
       if (cleanRepoUrl.match(/^(github|gitlab|bitbucket):/)) {
-        cleanRepoUrl = `git@github.com:${cleanRepoUrl.split(':')[1]}.git`;
+        cleanRepoUrl = `git@github.com:${cleanRepoUrl.split(':')[1]}`;
       }
       // Convert https GitHub URLs to git URLs
       else if (cleanRepoUrl.match(/^https?:\/\/github\.com\//)) {
-        cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^https?:\/\/github\.com\//, '')}.git`;
-        if (!cleanRepoUrl.endsWith('.git')) {
-          cleanRepoUrl += '.git';
-        }
+        cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^https?:\/\/github\.com\//, '')}`;
+      }
+      
+      // Add .git extension if not present
+      if (!cleanRepoUrl.endsWith('.git')) {
+        cleanRepoUrl += '.git';
       }
       
       console.log(`Getting changelog for ${dep.name} from ${cleanRepoUrl} between ${dep.oldVersion} and ${dep.newVersion}`);
