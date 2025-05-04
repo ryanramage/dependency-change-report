@@ -150,15 +150,15 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
       try {
         // Try to get the commit hash for the reference
         const result = await executeCommand('git', ['rev-parse', '--verify', ref], tempDir);
-        return result.trim();
+        return { ref: ref, hash: result.trim() };
       } catch (error) {
         // If not found, try with 'v' prefix
         if (!ref.startsWith('v')) {
           try {
             const result = await executeCommand('git', ['rev-parse', '--verify', `v${ref}`], tempDir);
-            return `v${ref}`;
+            return { ref: `v${ref}`, hash: result.trim() };
           } catch (e) {
-            // Neither version found
+            // Neither version found as direct reference
             return null;
           }
         }
@@ -166,9 +166,76 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
       }
     };
     
+    // Find commit with version bump
+    const findVersionCommit = async (version) => {
+      try {
+        console.log(`Looking for commit that bumps version to ${version}...`);
+        
+        // Look for version in commit messages (common patterns)
+        const patterns = [
+          `version bump to ${version}`,
+          `bump version to ${version}`,
+          `version ${version}`,
+          `v${version}`,
+          `${version} release`,
+          `release ${version}`
+        ];
+        
+        // Search for commits with version in message
+        for (const pattern of patterns) {
+          try {
+            const result = await executeCommand(
+              'git',
+              ['log', '--grep', pattern, '--format=%H', '-n', '1'],
+              tempDir
+            );
+            
+            if (result.trim()) {
+              console.log(`Found commit for version ${version} using pattern: ${pattern}`);
+              return { ref: version, hash: result.trim() };
+            }
+          } catch (e) {
+            // Continue to next pattern
+          }
+        }
+        
+        // Look for version in package.json changes
+        try {
+          const result = await executeCommand(
+            'git',
+            ['log', '-p', '--all', '-G', `"version":\\s*"${version}"`, '--format=%H', '-n', '1'],
+            tempDir
+          );
+          
+          if (result.trim()) {
+            console.log(`Found commit that changes package.json version to ${version}`);
+            return { ref: version, hash: result.trim() };
+          }
+        } catch (e) {
+          // Continue to next approach
+        }
+        
+        return null;
+      } catch (error) {
+        console.warn(`Error finding version commit: ${error.message}`);
+        return null;
+      }
+    };
+    
     // Resolve references
-    const resolvedOldRef = await checkRef(oldRef);
-    const resolvedNewRef = await checkRef(newRef);
+    let resolvedOldRef = await checkRef(oldRef);
+    let resolvedNewRef = await checkRef(newRef);
+    
+    // If direct references not found, try to find commits with version bumps
+    if (!resolvedOldRef) {
+      console.log(`Reference ${oldVersion} not found directly, looking for version bump commit...`);
+      resolvedOldRef = await findVersionCommit(oldVersion);
+    }
+    
+    if (!resolvedNewRef) {
+      console.log(`Reference ${newVersion} not found directly, looking for version bump commit...`);
+      resolvedNewRef = await findVersionCommit(newVersion);
+    }
     
     if (!resolvedOldRef) {
       console.warn(`Warning: Could not find reference for ${oldVersion} in repository`);
@@ -182,10 +249,10 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
     
     // Get commit history between versions
     // Format: hash,author,date,message
-    console.log(`Getting commits between ${resolvedOldRef} and ${resolvedNewRef}...`);
+    console.log(`Getting commits between ${resolvedOldRef.ref} (${resolvedOldRef.hash.substring(0, 7)}) and ${resolvedNewRef.ref} (${resolvedNewRef.hash.substring(0, 7)})...`);
     const output = await executeCommand(
       'git', 
-      ['log', `${resolvedOldRef}..${resolvedNewRef}`, '--pretty=format:%H,%an,%ad,%s'], 
+      ['log', `${resolvedOldRef.hash}..${resolvedNewRef.hash}`, '--pretty=format:%H,%an,%ad,%s'], 
       tempDir
     );
     
