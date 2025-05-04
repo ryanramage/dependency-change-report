@@ -218,7 +218,7 @@ const main = async () => {
     const [repoUrl, olderVersion, newerVersion, workingDir] = args;
     
     console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
-    const report = await analyzeDependencyChanges(repoUrl, ref1, ref2, workingDir);
+    const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir);
     
     console.log('\nSummary:');
     console.log(`Added dependencies: ${report.changes.added.length}`);
