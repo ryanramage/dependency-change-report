@@ -21,9 +21,9 @@ const generateHtmlReport = async (jsonPath, outputPath = null) => {
     
     // If no output path specified, create one with a specific naming format
     if (!outputPath) {
-      const packageName = report.repository.split('/').pop().replace('.git', '');
+      const packageName = reportJson.repository.split('/').pop().replace('.git', '');
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      outputPath = `dependency-report-${packageName}-${report.olderVersion}-${report.newerVersion}-${timestamp}.html`;
+      outputPath = `dependency-report-${packageName}-${reportJson.olderVersion}-${reportJson.newerVersion}-${timestamp}.html`;
     }
     
     // Generate HTML content
