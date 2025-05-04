@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, writeFile, readFile, rm } from 'fs/promises';
 import { join, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import semver from 'semver';
+import os from 'os';
 
 // Get the current directory
 const __filename = fileURLToPath(import.meta.url);
@@ -92,6 +93,116 @@ const getDependencies = async (dir) => {
     // Return empty object if we can't get dependencies
     return {};
   }
+};
+
+/**
+ * Get repository URL from package.json
+ * @param {string} packageDir - Path to the package directory
+ * @returns {Promise<string|null>} - Repository URL or null if not found
+ */
+const getRepositoryUrl = async (packageDir) => {
+  try {
+    const packageJsonPath = join(packageDir, 'package.json');
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+    
+    if (packageJson.repository) {
+      if (typeof packageJson.repository === 'string') {
+        return packageJson.repository;
+      } else if (packageJson.repository.url) {
+        return packageJson.repository.url;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Warning: Could not get repository URL for ${packageDir}: ${error.message}`);
+    return null;
+  }
+};
+
+/**
+ * Get commit history between two versions
+ * @param {string} repoUrl - Repository URL
+ * @param {string} oldVersion - Old version
+ * @param {string} newVersion - New version
+ * @returns {Promise<Array>} - Array of commit objects
+ */
+const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
+  try {
+    // Create a temporary directory for the repository
+    const tempDir = join(os.tmpdir(), `repo-${Date.now()}`);
+    await mkdir(tempDir, { recursive: true });
+    
+    // Clone the repository
+    console.log(`Cloning ${repoUrl} to get commit history...`);
+    await executeCommand('git', ['clone', repoUrl, tempDir]);
+    
+    // Get commit history between versions
+    // Format: hash,author,date,message
+    console.log(`Getting commits between ${oldVersion} and ${newVersion}...`);
+    const output = await executeCommand(
+      'git', 
+      ['log', `${oldVersion}..${newVersion}`, '--pretty=format:%H,%an,%ad,%s'], 
+      tempDir
+    );
+    
+    // Parse the output
+    const commits = output.split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const [hash, author, date, ...messageParts] = line.split(',');
+        return { 
+          hash, 
+          author, 
+          date, 
+          message: messageParts.join(',') // Rejoin message parts in case it contained commas
+        };
+      });
+    
+    // Clean up
+    await rm(tempDir, { recursive: true, force: true });
+    
+    return commits;
+  } catch (error) {
+    console.warn(`Warning: Could not get commit history for ${repoUrl} between ${oldVersion} and ${newVersion}: ${error.message}`);
+    return [];
+  }
+};
+
+/**
+ * Get changelog for upgraded dependencies
+ * @param {Array} upgradedDeps - Array of upgraded dependencies
+ * @param {string} newerVersionDir - Directory of the newer version
+ * @returns {Promise<Object>} - Object mapping package names to changelogs
+ */
+const getChangelogs = async (upgradedDeps, newerVersionDir) => {
+  const changelogs = {};
+  
+  for (const dep of upgradedDeps) {
+    const packageDir = join(newerVersionDir, 'node_modules', dep.name);
+    const repoUrl = await getRepositoryUrl(packageDir);
+    
+    if (repoUrl) {
+      // Clean the repository URL
+      let cleanRepoUrl = repoUrl.replace(/^git\+/, '').replace(/\.git$/, '');
+      
+      // Handle GitHub shorthand
+      if (cleanRepoUrl.match(/^(github|gitlab|bitbucket):/)) {
+        cleanRepoUrl = `https://github.com/${cleanRepoUrl.split(':')[1]}`;
+      }
+      
+      console.log(`Getting changelog for ${dep.name} from ${cleanRepoUrl} between ${dep.oldVersion} and ${dep.newVersion}`);
+      
+      const commits = await getCommitHistory(cleanRepoUrl, dep.oldVersion, dep.newVersion);
+      changelogs[dep.name] = {
+        repoUrl: cleanRepoUrl,
+        oldVersion: dep.oldVersion,
+        newVersion: dep.newVersion,
+        commits
+      };
+    }
+  }
+  
+  return changelogs;
 };
 
 /**
@@ -183,13 +294,18 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     // Compare dependencies
     const comparison = compareDependencies(olderDeps, newerDeps);
     
+    // Get changelogs for upgraded dependencies
+    console.log('Generating changelogs for upgraded dependencies...');
+    const changelogs = await getChangelogs(comparison.upgraded, newerVersionDir);
+    
     // Create report
     const report = {
       repository: repoUrl,
       olderVersion: olderVersion,
       newerVersion: newerVersion,
       timestamp: new Date().toISOString(),
-      changes: comparison
+      changes: comparison,
+      changelogs
     };
     
     // Write report to file
@@ -224,6 +340,9 @@ const main = async () => {
     console.log(`Added dependencies: ${report.changes.added.length}`);
     console.log(`Upgraded dependencies: ${report.changes.upgraded.length}`);
     console.log(`Removed dependencies: ${report.changes.removed.length}`);
+    
+    const changelogCount = Object.keys(report.changelogs).length;
+    console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
