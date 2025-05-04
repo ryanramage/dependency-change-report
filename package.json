@@ -1,14 +1,21 @@
 {
   "name": "deep-depends-report",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "index.mjs",
+  "type": "module",
+  "bin": {
+    "deep-depends-report": "./cli.mjs",
+    "deep-depends-html": "./html-cli.mjs"
+  },
   "scripts": {
+    "report": "node cli.mjs",
+    "html": "node html-cli.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "keywords": [],
-  "description": "",
+  "description": "Generate dependency change reports between different versions of a project",
   "dependencies": {
     "fs-extra": "^11.3.0",
     "semver": "^7.7.1"

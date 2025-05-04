@@ -522,29 +522,6 @@ const escapeHtml = (text) => {
     .replace(/'/g, '&#039;');
 };
 
-// CLI interface
-const main = async () => {
-  try {
-    const args = process.argv.slice(2);
-    
-    if (args.length < 1) {
-      console.error('Usage: node generate-html.mjs <report.json> [output.html]');
-      process.exit(1);
-    }
-    
-    const [jsonPath, outputPath] = args;
-    
-    await generateHtmlReport(jsonPath, outputPath);
-  } catch (error) {
-    console.error(`Error: ${error.message}`);
-    process.exit(1);
-  }
-};
-
-// Run the main function if this file is executed directly
-if (import.meta.url === `file://${fileURLToPath(import.meta.url)}`) {
-  main();
-}
 
 /**
  * Generate HTML section for modified dependencies (namespace changes)
