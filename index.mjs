@@ -148,6 +148,9 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
     // Try to resolve the references
     const checkRef = async (ref) => {
       try {
+        // Make sure we're in the right directory and have fetched everything
+        await executeCommand('git', ['fetch', '--all'], tempDir);
+        
         // Try to get the commit hash for the reference
         const result = await executeCommand('git', ['rev-parse', '--verify', ref], tempDir);
         return { ref: ref, hash: result.trim() };
@@ -158,11 +161,33 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
             const result = await executeCommand('git', ['rev-parse', '--verify', `v${ref}`], tempDir);
             return { ref: `v${ref}`, hash: result.trim() };
           } catch (e) {
-            // Neither version found as direct reference
+            // Try as a tag
+            try {
+              const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/${ref}`], tempDir);
+              return { ref: ref, hash: result.trim() };
+            } catch (e2) {
+              // Try with v prefix as a tag
+              if (!ref.startsWith('v')) {
+                try {
+                  const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/v${ref}`], tempDir);
+                  return { ref: `v${ref}`, hash: result.trim() };
+                } catch (e3) {
+                  // Neither version found as direct reference
+                  return null;
+                }
+              }
+              return null;
+            }
+          }
+        } else {
+          // Try as a tag if it already has v prefix
+          try {
+            const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/${ref}`], tempDir);
+            return { ref: ref, hash: result.trim() };
+          } catch (e) {
             return null;
           }
         }
-        return null;
       }
     };
     
@@ -237,24 +262,98 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
       resolvedNewRef = await findVersionCommit(newVersion);
     }
     
-    if (!resolvedOldRef) {
-      console.warn(`Warning: Could not find reference for ${oldVersion} in repository`);
-      return [];
-    }
-    
-    if (!resolvedNewRef) {
-      console.warn(`Warning: Could not find reference for ${newVersion} in repository`);
-      return [];
+    // Last resort: if we can't find specific versions, use default branch for newer and first commit for older
+    if (!resolvedOldRef && !resolvedNewRef) {
+      console.warn(`Warning: Could not find references for both ${oldVersion} and ${newVersion}. Using first and latest commits instead.`);
+      try {
+        // Get the first commit
+        const firstCommit = await executeCommand('git', ['rev-list', '--max-parents=0', 'HEAD'], tempDir);
+        resolvedOldRef = { ref: 'first-commit', hash: firstCommit.trim() };
+        
+        // Get the latest commit on default branch
+        const latestCommit = await executeCommand('git', ['rev-parse', 'HEAD'], tempDir);
+        resolvedNewRef = { ref: 'latest-commit', hash: latestCommit.trim() };
+        
+        console.log(`Using first commit (${resolvedOldRef.hash.substring(0, 7)}) and latest commit (${resolvedNewRef.hash.substring(0, 7)}) as fallback`);
+      } catch (error) {
+        console.warn(`Warning: Failed to get first and latest commits: ${error.message}`);
+        return [];
+      }
+    } else if (!resolvedOldRef) {
+      console.warn(`Warning: Could not find reference for ${oldVersion}. Using first commit instead.`);
+      try {
+        // Get the first commit
+        const firstCommit = await executeCommand('git', ['rev-list', '--max-parents=0', 'HEAD'], tempDir);
+        resolvedOldRef = { ref: 'first-commit', hash: firstCommit.trim() };
+        console.log(`Using first commit (${resolvedOldRef.hash.substring(0, 7)}) as fallback for ${oldVersion}`);
+      } catch (error) {
+        console.warn(`Warning: Failed to get first commit: ${error.message}`);
+        return [];
+      }
+    } else if (!resolvedNewRef) {
+      console.warn(`Warning: Could not find reference for ${newVersion}. Using latest commit instead.`);
+      try {
+        // Get the latest commit on default branch
+        const latestCommit = await executeCommand('git', ['rev-parse', 'HEAD'], tempDir);
+        resolvedNewRef = { ref: 'latest-commit', hash: latestCommit.trim() };
+        console.log(`Using latest commit (${resolvedNewRef.hash.substring(0, 7)}) as fallback for ${newVersion}`);
+      } catch (error) {
+        console.warn(`Warning: Failed to get latest commit: ${error.message}`);
+        return [];
+      }
     }
     
     // Get commit history between versions
     // Format: hash,author,date,message
     console.log(`Getting commits between ${resolvedOldRef.ref} (${resolvedOldRef.hash.substring(0, 7)}) and ${resolvedNewRef.ref} (${resolvedNewRef.hash.substring(0, 7)})...`);
-    const output = await executeCommand(
-      'git', 
-      ['log', `${resolvedOldRef.hash}..${resolvedNewRef.hash}`, '--pretty=format:%H,%an,%ad,%s'], 
-      tempDir
-    );
+    
+    // Check if the order is correct (older should come before newer)
+    try {
+      // Try to determine which commit came first
+      const mergeBase = await executeCommand(
+        'git',
+        ['merge-base', resolvedOldRef.hash, resolvedNewRef.hash],
+        tempDir
+      );
+      
+      // If merge-base equals oldRef, order is correct
+      // If merge-base equals newRef, order is reversed
+      // If merge-base is different from both, they're on different branches
+      
+      if (mergeBase.trim() === resolvedNewRef.hash.trim()) {
+        // Order is reversed, swap them
+        console.log('Detected reversed version order, swapping references...');
+        const temp = resolvedOldRef;
+        resolvedOldRef = resolvedNewRef;
+        resolvedNewRef = temp;
+      }
+    } catch (error) {
+      console.warn(`Warning: Could not determine commit order: ${error.message}`);
+      // Continue with original order
+    }
+    
+    let output;
+    try {
+      output = await executeCommand(
+        'git', 
+        ['log', `${resolvedOldRef.hash}..${resolvedNewRef.hash}`, '--pretty=format:%H,%an,%ad,%s'], 
+        tempDir
+      );
+    } catch (error) {
+      console.warn(`Warning: Failed to get commit log: ${error.message}`);
+      // Try with a different approach - get all commits and filter
+      try {
+        console.log('Trying alternative approach to get commit history...');
+        output = await executeCommand(
+          'git',
+          ['log', '--pretty=format:%H,%an,%ad,%s'],
+          tempDir
+        );
+      } catch (e) {
+        console.warn(`Warning: Alternative approach also failed: ${e.message}`);
+        return [];
+      }
+    }
     
     // Parse the output
     const commits = output.split('\n')
