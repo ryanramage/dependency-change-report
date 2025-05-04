@@ -155,39 +155,39 @@ const compareDependencies = (oldDeps, newDeps) => {
  * @param {string} workingDir - Working directory (optional)
  * @returns {Promise<Object>} - Analysis report
  */
-const analyzeDependencyChanges = async (repoUrl, ref1, ref2, workingDir = process.cwd()) => {
+const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, workingDir = process.cwd()) => {
   // Extract project name from repo URL
   const projectName = basename(repoUrl, '.git');
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const reposDir = join(workingDir, `${projectName}-${timestamp}`);
   
-  const version1Dir = join(reposDir, `${ref1}`);
-  const version2Dir = join(reposDir, `${ref2}`);
+  const olderVersionDir = join(reposDir, `${olderVersion}`);
+  const newerVersionDir = join(reposDir, `${newerVersion}`);
   
   try {
     // Create the repos directory
     await mkdir(reposDir, { recursive: true });
     
     // Clone both versions
-    await cloneRepo(repoUrl, ref1, version1Dir);
-    await cloneRepo(repoUrl, ref2, version2Dir);
+    await cloneRepo(repoUrl, olderVersion, olderVersionDir);
+    await cloneRepo(repoUrl, newerVersion, newerVersionDir);
     
     // Install dependencies for both versions
-    await installDependencies(version1Dir);
-    await installDependencies(version2Dir);
+    await installDependencies(olderVersionDir);
+    await installDependencies(newerVersionDir);
     
     // Get dependencies for both versions
-    const deps1 = await getDependencies(version1Dir);
-    const deps2 = await getDependencies(version2Dir);
+    const olderDeps = await getDependencies(olderVersionDir);
+    const newerDeps = await getDependencies(newerVersionDir);
     
     // Compare dependencies
-    const comparison = compareDependencies(deps1, deps2);
+    const comparison = compareDependencies(olderDeps, newerDeps);
     
     // Create report
     const report = {
       repository: repoUrl,
-      oldVersion: ref1,
-      newVersion: ref2,
+      olderVersion: olderVersion,
+      newerVersion: newerVersion,
       timestamp: new Date().toISOString(),
       changes: comparison
     };
@@ -210,13 +210,14 @@ const main = async () => {
     const args = process.argv.slice(2);
     
     if (args.length < 3) {
-      console.error('Usage: node index.mjs <github-repo> <ref1> <ref2> [working-dir]');
+      console.error('Usage: node index.mjs <github-repo> <older-version> <newer-version> [working-dir]');
+      console.error('  <older-version> and <newer-version> can be any git reference (tag, branch, commit)');
       process.exit(1);
     }
     
-    const [repoUrl, ref1, ref2, workingDir] = args;
+    const [repoUrl, olderVersion, newerVersion, workingDir] = args;
     
-    console.log(`Analyzing dependency changes for ${repoUrl} between ${ref1} and ${ref2}`);
+    console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
     const report = await analyzeDependencyChanges(repoUrl, ref1, ref2, workingDir);
     
     console.log('\nSummary:');
