@@ -138,12 +138,54 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
     // Use --quiet to avoid printing credentials in logs
     await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
     
+    // Fetch all tags to ensure we have the version references
+    await executeCommand('git', ['fetch', '--tags', '--force'], tempDir);
+    
+    // Check if versions exist as tags by adding v prefix if needed
+    let oldRef = oldVersion;
+    let newRef = newVersion;
+    
+    // Try to resolve the references
+    const checkRef = async (ref) => {
+      try {
+        // Try to get the commit hash for the reference
+        const result = await executeCommand('git', ['rev-parse', '--verify', ref], tempDir);
+        return result.trim();
+      } catch (error) {
+        // If not found, try with 'v' prefix
+        if (!ref.startsWith('v')) {
+          try {
+            const result = await executeCommand('git', ['rev-parse', '--verify', `v${ref}`], tempDir);
+            return `v${ref}`;
+          } catch (e) {
+            // Neither version found
+            return null;
+          }
+        }
+        return null;
+      }
+    };
+    
+    // Resolve references
+    const resolvedOldRef = await checkRef(oldRef);
+    const resolvedNewRef = await checkRef(newRef);
+    
+    if (!resolvedOldRef) {
+      console.warn(`Warning: Could not find reference for ${oldVersion} in repository`);
+      return [];
+    }
+    
+    if (!resolvedNewRef) {
+      console.warn(`Warning: Could not find reference for ${newVersion} in repository`);
+      return [];
+    }
+    
     // Get commit history between versions
     // Format: hash,author,date,message
-    console.log(`Getting commits between ${oldVersion} and ${newVersion}...`);
+    console.log(`Getting commits between ${resolvedOldRef} and ${resolvedNewRef}...`);
     const output = await executeCommand(
       'git', 
-      ['log', `${oldVersion}..${newVersion}`, '--pretty=format:%H,%an,%ad,%s'], 
+      ['log', `${resolvedOldRef}..${resolvedNewRef}`, '--pretty=format:%H,%an,%ad,%s'], 
       tempDir
     );
     
@@ -206,13 +248,21 @@ const getChangelogs = async (upgradedDeps, newerVersionDir) => {
       
       console.log(`Getting changelog for ${dep.name} from ${cleanRepoUrl} between ${dep.oldVersion} and ${dep.newVersion}`);
       
-      const commits = await getCommitHistory(cleanRepoUrl, dep.oldVersion, dep.newVersion);
-      changelogs[dep.name] = {
-        repoUrl: cleanRepoUrl,
-        oldVersion: dep.oldVersion,
-        newVersion: dep.newVersion,
-        commits
-      };
+      try {
+        const commits = await getCommitHistory(cleanRepoUrl, dep.oldVersion, dep.newVersion);
+        if (commits.length > 0) {
+          changelogs[dep.name] = {
+            repoUrl: cleanRepoUrl,
+            oldVersion: dep.oldVersion,
+            newVersion: dep.newVersion,
+            commits
+          };
+        } else {
+          console.warn(`No commits found between ${dep.oldVersion} and ${dep.newVersion} for ${dep.name}`);
+        }
+      } catch (error) {
+        console.warn(`Error getting changelog for ${dep.name}: ${error.message}`);
+      }
     }
   }
   
