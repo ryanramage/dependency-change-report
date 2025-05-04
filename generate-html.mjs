@@ -19,9 +19,11 @@ const generateHtmlReport = async (jsonPath, outputPath = null) => {
     // Read the report JSON
     const reportJson = JSON.parse(await readFile(jsonPath, 'utf8'));
     
-    // If no output path specified, create one next to the JSON file
+    // If no output path specified, create one with a specific naming format
     if (!outputPath) {
-      outputPath = jsonPath.replace(/\.json$/, '.html');
+      const packageName = report.repository.split('/').pop().replace('.git', '');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      outputPath = `dependency-report-${packageName}-${report.olderVersion}-${report.newerVersion}-${timestamp}.html`;
     }
     
     // Generate HTML content
@@ -136,6 +138,19 @@ const generateHtml = (report) => {
     
     a:hover {
       text-decoration: underline;
+    }
+    
+    .summary a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      height: 100%;
+    }
+    
+    .summary a:hover {
+      transform: translateY(-2px);
+      transition: transform 0.2s;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
     
     .summary {
@@ -304,30 +319,30 @@ const generateHtml = (report) => {
     </header>
     
     <div class="summary">
-      <div class="summary-item added">
+      <a href="#added-dependencies" class="summary-item added">
         <div class="summary-count">${addedCount}</div>
         <div>Dependencies Added</div>
-      </div>
-      <div class="summary-item upgraded">
+      </a>
+      <a href="#upgraded-dependencies" class="summary-item upgraded">
         <div class="summary-count">${upgradedCount}</div>
         <div>Dependencies Upgraded</div>
-      </div>
-      <div class="summary-item removed">
+      </a>
+      <a href="#removed-dependencies" class="summary-item removed">
         <div class="summary-count">${removedCount}</div>
         <div>Dependencies Removed</div>
-      </div>
-      <div class="summary-item" style="background-color: rgba(155, 89, 182, 0.2);">
+      </a>
+      <a href="#modified-dependencies" class="summary-item" style="background-color: rgba(155, 89, 182, 0.2);">
         <div class="summary-count">${modifiedCount}</div>
         <div>Dependencies Modified</div>
-      </div>
-      <div class="summary-item changelogs">
+      </a>
+      <a href="#changelogs" class="summary-item changelogs">
         <div class="summary-count">${changelogCount}</div>
         <div>Changelogs Generated</div>
-      </div>
-      <div class="summary-item errors" style="background-color: rgba(231, 76, 60, 0.2);">
+      </a>
+      <a href="#errors" class="summary-item errors" style="background-color: rgba(231, 76, 60, 0.2);">
         <div class="summary-count">${errorCount}</div>
         <div>Errors Encountered</div>
-      </div>
+      </a>
     </div>
     
     ${addedSection}
@@ -353,7 +368,7 @@ const generateHtml = (report) => {
 const generateAddedSection = (added) => {
   if (added.length === 0) {
     return `
-      <h2>Added Dependencies</h2>
+      <h2 id="added-dependencies">Added Dependencies</h2>
       <p class="empty-message">No dependencies were added.</p>
     `;
   }
@@ -371,7 +386,7 @@ const generateAddedSection = (added) => {
   }).join('');
   
   return `
-    <h2>Added Dependencies</h2>
+    <h2 id="added-dependencies">Added Dependencies</h2>
     <table>
       <thead>
         <tr>
@@ -395,7 +410,7 @@ const generateAddedSection = (added) => {
 const generateUpgradedSection = (upgraded, changelogs) => {
   if (upgraded.length === 0) {
     return `
-      <h2>Upgraded Dependencies</h2>
+      <h2 id="upgraded-dependencies">Upgraded Dependencies</h2>
       <p class="empty-message">No dependencies were upgraded.</p>
     `;
   }
@@ -448,7 +463,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
     }).join('');
   
   return `
-    <h2>Upgraded Dependencies</h2>
+    <h2 id="upgraded-dependencies">Upgraded Dependencies</h2>
     <table>
       <thead>
         <tr>
@@ -462,7 +477,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
       </tbody>
     </table>
     
-    <h2>Changelogs</h2>
+    <h2 id="changelogs">Changelogs</h2>
     ${changelogSections || '<p class="empty-message">No changelogs were generated.</p>'}
   `;
 };
@@ -475,7 +490,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
 const generateRemovedSection = (removed) => {
   if (removed.length === 0) {
     return `
-      <h2>Removed Dependencies</h2>
+      <h2 id="removed-dependencies">Removed Dependencies</h2>
       <p class="empty-message">No dependencies were removed.</p>
     `;
   }
@@ -493,7 +508,7 @@ const generateRemovedSection = (removed) => {
   }).join('');
   
   return `
-    <h2>Removed Dependencies</h2>
+    <h2 id="removed-dependencies">Removed Dependencies</h2>
     <table>
       <thead>
         <tr>
@@ -532,7 +547,7 @@ const escapeHtml = (text) => {
 const generateModifiedSection = (modified, changelogs = {}) => {
   if (modified.length === 0) {
     return `
-      <h2>Modified Dependencies (Namespace Changes)</h2>
+      <h2 id="modified-dependencies">Modified Dependencies (Namespace Changes)</h2>
       <p class="empty-message">No dependencies had namespace changes.</p>
     `;
   }
@@ -585,7 +600,7 @@ const generateModifiedSection = (modified, changelogs = {}) => {
     }).join('');
   
   return `
-    <h2>Modified Dependencies (Namespace Changes)</h2>
+    <h2 id="modified-dependencies">Modified Dependencies (Namespace Changes)</h2>
     <p>These dependencies have changed their package name (typically from/to a namespace):</p>
     <table>
       <thead>
@@ -618,7 +633,7 @@ const generateErrorsSection = (errors) => {
   
   if (errorCount === 0) {
     return `
-      <h2>Errors</h2>
+      <h2 id="errors">Errors</h2>
       <p class="empty-message">No errors were encountered.</p>
     `;
   }
@@ -638,7 +653,7 @@ const generateErrorsSection = (errors) => {
   }).join('');
   
   return `
-    <h2>Errors</h2>
+    <h2 id="errors">Errors</h2>
     <p>The following dependencies encountered errors during changelog generation:</p>
     <table>
       <thead>
