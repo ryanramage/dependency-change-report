@@ -138,7 +138,16 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     // Clone the repository
     console.log(`Cloning ${repoUrl} into ${tempDir} to get commit history...`);
     // Use --quiet to avoid printing credentials in logs
-    await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
+    try {
+      await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
+    } catch (error) {
+      // If the repository doesn't exist or can't be accessed, throw a more specific error
+      if (error.message.includes("Repository not found") || 
+          error.message.includes("Could not read from remote repository")) {
+        throw new Error(`Repository not found or inaccessible: ${error.message}`);
+      }
+      throw error;
+    }
     
     // Fetch all tags to ensure we have the version references
     await executeCommand('git', ['fetch', '--tags', '--force'], tempDir);
@@ -389,6 +398,7 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
  */
 const getChangelogs = async (upgradedDeps, newerVersionDir, reposDir) => {
   const changelogs = {};
+  const errors = {};
   
   for (const dep of upgradedDeps) {
     const packageDir = join(newerVersionDir, 'node_modules', dep.name);
@@ -428,14 +438,26 @@ const getChangelogs = async (upgradedDeps, newerVersionDir, reposDir) => {
           };
         } else {
           console.warn(`No commits found between ${dep.oldVersion} and ${dep.newVersion} for ${dep.name}`);
+          errors[dep.name] = {
+            repoUrl: cleanRepoUrl,
+            oldVersion: dep.oldVersion,
+            newVersion: dep.newVersion,
+            error: "No commits found between versions"
+          };
         }
       } catch (error) {
         console.warn(`Error getting changelog for ${dep.name}: ${error.message}`);
+        errors[dep.name] = {
+          repoUrl: cleanRepoUrl,
+          oldVersion: dep.oldVersion,
+          newVersion: dep.newVersion,
+          error: error.message
+        };
       }
     }
   }
   
-  return changelogs;
+  return { changelogs, errors };
 };
 
 /**
@@ -529,7 +551,7 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     
     // Get changelogs for upgraded dependencies
     console.log('Generating changelogs for upgraded dependencies...');
-    const changelogs = await getChangelogs(comparison.upgraded, newerVersionDir, reposDir);
+    const { changelogs, errors } = await getChangelogs(comparison.upgraded, newerVersionDir, reposDir);
     
     // Create report
     const report = {
@@ -538,7 +560,8 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
       newerVersion: newerVersion,
       timestamp: new Date().toISOString(),
       changes: comparison,
-      changelogs
+      changelogs,
+      errors
     };
     
     // Write report to file
@@ -575,7 +598,9 @@ const main = async () => {
     console.log(`Removed dependencies: ${report.changes.removed.length}`);
     
     const changelogCount = Object.keys(report.changelogs).length;
+    const errorCount = Object.keys(report.errors).length;
     console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
+    console.log(`Encountered errors with ${errorCount} dependencies`);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
