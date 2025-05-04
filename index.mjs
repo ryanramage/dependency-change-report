@@ -136,7 +136,7 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     await mkdir(tempDir, { recursive: true });
     
     // Clone the repository
-    console.log(`Cloning ${repoUrl} to get commit history...`);
+    console.log(`Cloning ${repoUrl} into ${tempDir} to get commit history...`);
     // Use --quiet to avoid printing credentials in logs
     await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
     
