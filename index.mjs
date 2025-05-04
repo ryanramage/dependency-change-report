@@ -55,7 +55,8 @@ const executeCommand = (command, args, cwd) => {
 const cloneRepo = async (repoUrl, ref, targetDir) => {
   try {
     console.log(`Cloning ${repoUrl} at ${ref} into ${targetDir}...`);
-    await executeCommand('git', ['clone', repoUrl, targetDir]);
+    // Use --quiet to avoid printing credentials in logs
+    await executeCommand('git', ['clone', '--quiet', repoUrl, targetDir]);
     await executeCommand('git', ['checkout', ref], targetDir);
   } catch (error) {
     console.warn(`Warning: Failed to clone or checkout repository: ${error.message}`);
@@ -134,7 +135,8 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion) => {
     
     // Clone the repository
     console.log(`Cloning ${repoUrl} to get commit history...`);
-    await executeCommand('git', ['clone', repoUrl, tempDir]);
+    // Use --quiet to avoid printing credentials in logs
+    await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
     
     // Get commit history between versions
     // Format: hash,author,date,message
@@ -182,12 +184,19 @@ const getChangelogs = async (upgradedDeps, newerVersionDir) => {
     const repoUrl = await getRepositoryUrl(packageDir);
     
     if (repoUrl) {
-      // Clean the repository URL
-      let cleanRepoUrl = repoUrl.replace(/^git\+/, '').replace(/\.git$/, '');
+      // Clean the repository URL and convert to git URL for authentication
+      let cleanRepoUrl = repoUrl.replace(/^git\+/, '');
       
-      // Handle GitHub shorthand
+      // Handle GitHub shorthand (github:user/repo)
       if (cleanRepoUrl.match(/^(github|gitlab|bitbucket):/)) {
-        cleanRepoUrl = `https://github.com/${cleanRepoUrl.split(':')[1]}`;
+        cleanRepoUrl = `git@github.com:${cleanRepoUrl.split(':')[1]}.git`;
+      }
+      // Convert https GitHub URLs to git URLs
+      else if (cleanRepoUrl.match(/^https?:\/\/github\.com\//)) {
+        cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^https?:\/\/github\.com\//, '')}.git`;
+        if (!cleanRepoUrl.endsWith('.git')) {
+          cleanRepoUrl += '.git';
+        }
       }
       
       console.log(`Getting changelog for ${dep.name} from ${cleanRepoUrl} between ${dep.oldVersion} and ${dep.newVersion}`);
