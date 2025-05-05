@@ -48,7 +48,8 @@ const generateHtmlReport = async (jsonPath, outputPath = null) => {
 const generateHtml = (report) => {
   // Format repository URL for display and linking
   const repoUrl = report.repository.replace(/\.git$/, '');
-  const repoDisplayUrl = repoUrl.replace(/^git@github\.com:/, 'https://github.com/');
+  const repoDisplayUrl = repoUrl.replace(/^git@github\.com:/, 'https://github.com/')
+                               .replace(/^git\+https:/, 'https:');
   
   // Get counts
   const addedCount = report.changes.added.length;
@@ -377,7 +378,9 @@ const generateAddedSection = (added) => {
     const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
     const versionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.version}`;
     const repoUrl = dep.repository ? 
-      dep.repository.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+      dep.repository.replace(/\.git$/, '')
+                   .replace(/^git@github\.com:/, 'https://github.com/')
+                   .replace(/^git\+https:/, 'https:') : 
       null;
     
     return `
@@ -425,9 +428,13 @@ const generateUpgradedSection = (upgraded, changelogs) => {
     const oldVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.oldVersion}`;
     const newVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.newVersion}`;
     const repoUrl = dep.repository ? 
-      dep.repository.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+      dep.repository.replace(/\.git$/, '')
+                   .replace(/^git@github\.com:/, 'https://github.com/')
+                   .replace(/^git\+https:/, 'https:') : 
       (changelogs[dep.name] && changelogs[dep.name].repoUrl ? 
-        changelogs[dep.name].repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+        changelogs[dep.name].repoUrl.replace(/\.git$/, '')
+                            .replace(/^git@github\.com:/, 'https://github.com/')
+                            .replace(/^git\+https:/, 'https:') : 
         null);
     
     const changeTypeBadge = `<span class="badge ${dep.changeType}">${dep.changeType}</span>`;
@@ -447,7 +454,9 @@ const generateUpgradedSection = (upgraded, changelogs) => {
     .filter(dep => changelogs[dep.name])
     .map(dep => {
       const changelog = changelogs[dep.name];
-      const repoUrl = changelog.repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+      const repoUrl = changelog.repoUrl.replace(/\.git$/, '')
+                                      .replace(/^git@github\.com:/, 'https://github.com/')
+                                      .replace(/^git\+https:/, 'https:');
       
       const commits = changelog.commits.map(commit => {
         const commitUrl = `${repoUrl}/commit/${commit.hash}`;
@@ -585,7 +594,9 @@ const generateModifiedSection = (modified, changelogs = {}) => {
     .filter(dep => changelogs[dep.newName])
     .map(dep => {
       const changelog = changelogs[dep.newName];
-      const repoUrl = changelog.repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+      const repoUrl = changelog.repoUrl.replace(/\.git$/, '')
+                                      .replace(/^git@github\.com:/, 'https://github.com/')
+                                      .replace(/^git\+https:/, 'https:');
       
       const commits = changelog.commits.map(commit => {
         const commitUrl = `${repoUrl}/commit/${commit.hash}`;
@@ -652,7 +663,9 @@ const generateErrorsSection = (errors) => {
   
   const rows = Object.entries(errors).map(([name, info]) => {
     const npmUrl = `https://www.npmjs.com/package/${name}`;
-    const repoUrl = info.repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/');
+    const repoUrl = info.repoUrl.replace(/\.git$/, '')
+                               .replace(/^git@github\.com:/, 'https://github.com/')
+                               .replace(/^git\+https:/, 'https:');
     
     return `
       <tr>
