@@ -135,6 +135,23 @@ const getRepositoryUrl = async (packageDir) => {
         return packageJson.repository.url;
       }
     }
+    
+    // If no repository URL is found, try to infer it from the package name
+    if (packageJson.name) {
+      // Handle scoped packages like @holepunch/keet-core-api
+      if (packageJson.name.startsWith('@')) {
+        const [scope, packageName] = packageJson.name.substring(1).split('/');
+        if (scope && packageName) {
+          console.log(`No repository URL found for ${packageJson.name}, inferring from package name...`);
+          return `git://github.com/${scope}to/${packageName}`;
+        }
+      } else {
+        // For non-scoped packages, assume it's directly on GitHub with the same name
+        console.log(`No repository URL found for ${packageJson.name}, inferring from package name...`);
+        return `git://github.com/${packageJson.name}/${packageJson.name}`;
+      }
+    }
+    
     return null;
   } catch (error) {
     console.warn(`Warning: Could not get repository URL for ${packageDir}: ${error.message}`);
@@ -440,6 +457,10 @@ const getChangelogs = async (upgradedDeps, newerVersionDir, reposDir) => {
       // Convert https GitHub URLs to git URLs
       else if (cleanRepoUrl.match(/^https?:\/\/github\.com\//)) {
         cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^https?:\/\/github\.com\//, '')}`;
+      }
+      // Handle git:// protocol URLs
+      else if (cleanRepoUrl.match(/^git:\/\/github\.com\//)) {
+        cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^git:\/\/github\.com\//, '')}`;
       }
       
       // Add .git extension if not present
