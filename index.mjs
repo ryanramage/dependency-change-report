@@ -143,12 +143,12 @@ const getRepositoryUrl = async (packageDir) => {
         const [scope, packageName] = packageJson.name.substring(1).split('/');
         if (scope && packageName) {
           console.log(`No repository URL found for ${packageJson.name}, inferring from package name...`);
-          return `git://github.com/${scope}to/${packageName}`;
+          return `git@github.com:${scope}to/${packageName}.git`;
         }
       } else {
         // For non-scoped packages, assume it's directly on GitHub with the same name
         console.log(`No repository URL found for ${packageJson.name}, inferring from package name...`);
-        return `git://github.com/${packageJson.name}/${packageJson.name}`;
+        return `git@github.com:${packageJson.name}/${packageJson.name}.git`;
       }
     }
     
@@ -461,6 +461,16 @@ const getChangelogs = async (upgradedDeps, newerVersionDir, reposDir) => {
       // Handle git:// protocol URLs
       else if (cleanRepoUrl.match(/^git:\/\/github\.com\//)) {
         cleanRepoUrl = `git@github.com:${cleanRepoUrl.replace(/^git:\/\/github\.com\//, '')}`;
+      }
+      // Ensure URL is in the correct format for GitHub
+      else if (!cleanRepoUrl.match(/^git@github\.com:/)) {
+        // If it's not already in the git@github.com format, try to convert it
+        const parts = cleanRepoUrl.split('/');
+        const repoName = parts.pop();
+        const orgName = parts.pop();
+        if (orgName && repoName) {
+          cleanRepoUrl = `git@github.com:${orgName}/${repoName}`;
+        }
       }
       
       // Add .git extension if not present
