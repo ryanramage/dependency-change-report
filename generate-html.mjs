@@ -376,11 +376,15 @@ const generateAddedSection = (added) => {
   const rows = added.map(dep => {
     const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
     const versionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.version}`;
+    const repoUrl = dep.repository ? 
+      dep.repository.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+      null;
     
     return `
       <tr>
         <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
         <td><a href="${versionUrl}" target="_blank">${dep.version}</a></td>
+        <td>${repoUrl ? `<a href="${repoUrl}" target="_blank">${repoUrl}</a>` : 'N/A'}</td>
       </tr>
     `;
   }).join('');
@@ -392,6 +396,7 @@ const generateAddedSection = (added) => {
         <tr>
           <th>Package</th>
           <th>Version</th>
+          <th>Repository</th>
         </tr>
       </thead>
       <tbody>
@@ -419,6 +424,11 @@ const generateUpgradedSection = (upgraded, changelogs) => {
     const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
     const oldVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.oldVersion}`;
     const newVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.newVersion}`;
+    const repoUrl = dep.repository ? 
+      dep.repository.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+      (changelogs[dep.name] && changelogs[dep.name].repoUrl ? 
+        changelogs[dep.name].repoUrl.replace(/\.git$/, '').replace(/^git@github\.com:/, 'https://github.com/') : 
+        null);
     
     const changeTypeBadge = `<span class="badge ${dep.changeType}">${dep.changeType}</span>`;
     
@@ -427,6 +437,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
         <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
         <td><a href="${oldVersionUrl}" target="_blank">${dep.oldVersion}</a></td>
         <td><a href="${newVersionUrl}" target="_blank">${dep.newVersion}</a> ${changeTypeBadge}</td>
+        <td>${repoUrl ? `<a href="${repoUrl}" target="_blank">${repoUrl}</a>` : 'N/A'}</td>
       </tr>
     `;
   }).join('');
@@ -470,6 +481,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
           <th>Package</th>
           <th>Old Version</th>
           <th>New Version</th>
+          <th>Repository</th>
         </tr>
       </thead>
       <tbody>
