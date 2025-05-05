@@ -88,7 +88,29 @@ const getDependencies = async (dir) => {
   try {
     console.log(`Getting dependency list from ${dir}...`);
     const output = await executeCommand('npm', ['ls', '--all', '--omit=dev', '--json'], dir);
-    return JSON.parse(output).dependencies || {};
+    const dependencies = JSON.parse(output).dependencies || {};
+    
+    // Enhance dependencies with repository information
+    for (const [name, info] of Object.entries(dependencies)) {
+      try {
+        const packageDir = join(dir, 'node_modules', name);
+        const packageJsonPath = join(packageDir, 'package.json');
+        const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+        
+        // Extract repository URL
+        if (packageJson.repository) {
+          if (typeof packageJson.repository === 'string') {
+            info.repository = packageJson.repository;
+          } else if (packageJson.repository.url) {
+            info.repository = packageJson.repository.url;
+          }
+        }
+      } catch (err) {
+        console.warn(`Warning: Could not read package.json for ${name}: ${err.message}`);
+      }
+    }
+    
+    return dependencies;
   } catch (error) {
     console.warn(`Warning: Failed to get dependencies: ${error.message}`);
     // Return empty object if we can't get dependencies
@@ -491,6 +513,7 @@ const compareDependencies = (oldDeps, newDeps) => {
       potentialNamespaceChanges.set(baseName, {
         newName: name,
         newVersion: info.version,
+        repository: info.repository || null,
         type: 'added'
       });
     } else if (oldDeps[name].version !== info.version) {
@@ -516,7 +539,8 @@ const compareDependencies = (oldDeps, newDeps) => {
         name,
         oldVersion,
         newVersion,
-        changeType
+        changeType,
+        repository: info.repository || null
       });
     }
   }
@@ -555,7 +579,11 @@ const compareDependencies = (oldDeps, newDeps) => {
   // Process remaining potential namespace changes
   for (const [baseName, data] of potentialNamespaceChanges.entries()) {
     if (data.type === 'added') {
-      added.push({ name: data.newName, version: data.newVersion });
+      added.push({ 
+        name: data.newName, 
+        version: data.newVersion,
+        repository: data.repository 
+      });
     } else if (data.type === 'removed') {
       removed.push({ name: data.oldName, version: data.oldVersion });
     }
