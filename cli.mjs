@@ -28,6 +28,16 @@ const main = async () => {
     const errorCount = Object.keys(report.errors).length;
     console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
     console.log(`Encountered errors with ${errorCount} dependencies`);
+    
+    // Display repository information for added dependencies
+    if (report.changes.added.length > 0) {
+      console.log('\nAdded dependencies with repositories:');
+      report.changes.added.forEach(dep => {
+        if (dep.repository) {
+          console.log(`- ${dep.name}: ${dep.repository}`);
+        }
+      });
+    }
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
