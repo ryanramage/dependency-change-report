@@ -436,15 +436,21 @@ const generateUpgradedSection = (upgraded, changelogs) => {
                             .replace(/^git@github\.com:/, 'https://github.com/')
                             .replace(/^git\+https:/, 'https:') : 
         null);
-    
+      
     const changeTypeBadge = `<span class="badge ${dep.changeType}">${dep.changeType}</span>`;
-    
+      
+    // Add changelog link if available
+    const changelogLink = changelogs[dep.name] ? 
+      `<a href="#changelog-${dep.name}" title="View changelog">📋</a>` : 
+      'N/A';
+      
     return `
       <tr>
         <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
         <td><a href="${oldVersionUrl}" target="_blank">${dep.oldVersion}</a></td>
         <td><a href="${newVersionUrl}" target="_blank">${dep.newVersion}</a> ${changeTypeBadge}</td>
         <td>${repoUrl ? `<a href="${repoUrl}" target="_blank">${repoUrl}</a>` : 'N/A'}</td>
+        <td>${changelogLink}</td>
       </tr>
     `;
   }).join('');
@@ -473,7 +479,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
       }).join('');
       
       return `
-        <h3>${dep.name}: ${dep.oldVersion} → ${dep.newVersion}</h3>
+        <h3 id="changelog-${dep.name}">${dep.name}: ${dep.oldVersion} → ${dep.newVersion}</h3>
         <div class="changelog">
           <p>Repository: <a href="${repoUrl}" target="_blank">${repoUrl}</a></p>
           <p>Commits: ${changelog.commits.length}</p>
@@ -491,6 +497,7 @@ const generateUpgradedSection = (upgraded, changelogs) => {
           <th>Old Version</th>
           <th>New Version</th>
           <th>Repository</th>
+          <th>Changelog</th>
         </tr>
       </thead>
       <tbody>
@@ -579,12 +586,18 @@ const generateModifiedSection = (modified, changelogs = {}) => {
     const oldVersionUrl = `https://www.npmjs.com/package/${dep.oldName}/v/${dep.oldVersion}`;
     const newVersionUrl = `https://www.npmjs.com/package/${dep.newName}/v/${dep.newVersion}`;
     
+    // Add changelog link if available
+    const changelogLink = changelogs[dep.newName] ? 
+      `<a href="#changelog-${dep.newName}" title="View changelog">📋</a>` : 
+      'N/A';
+    
     return `
       <tr>
         <td><a href="${oldNpmUrl}" target="_blank">${dep.oldName}</a></td>
         <td><a href="${newNpmUrl}" target="_blank">${dep.newName}</a></td>
         <td><a href="${oldVersionUrl}" target="_blank">${dep.oldVersion}</a></td>
         <td><a href="${newVersionUrl}" target="_blank">${dep.newVersion}</a></td>
+        <td>${changelogLink}</td>
       </tr>
     `;
   }).join('');
@@ -613,7 +626,7 @@ const generateModifiedSection = (modified, changelogs = {}) => {
       }).join('');
       
       return `
-        <h3>${dep.oldName} → ${dep.newName}: ${dep.oldVersion} → ${dep.newVersion}</h3>
+        <h3 id="changelog-${dep.newName}">${dep.oldName} → ${dep.newName}: ${dep.oldVersion} → ${dep.newVersion}</h3>
         <div class="changelog">
           <p>Repository: <a href="${repoUrl}" target="_blank">${repoUrl}</a></p>
           <p>Commits: ${changelog.commits.length}</p>
@@ -632,6 +645,7 @@ const generateModifiedSection = (modified, changelogs = {}) => {
           <th>New Package</th>
           <th>Old Version</th>
           <th>New Version</th>
+          <th>Changelog</th>
         </tr>
       </thead>
       <tbody>
