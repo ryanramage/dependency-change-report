@@ -138,12 +138,12 @@ const getRepositoryUrl = async (packageDir) => {
     
     // If no repository URL is found, try to infer it from the package name
     if (packageJson.name) {
-      // Handle scoped packages like @holepunch/keet-core-api
+      // Handle scoped packages like @holepunchto/keet-core-api
       if (packageJson.name.startsWith('@')) {
         const [scope, packageName] = packageJson.name.substring(1).split('/');
         if (scope && packageName) {
           console.log(`No repository URL found for ${packageJson.name}, inferring from package name...`);
-          return `git@github.com:${scope}to/${packageName}.git`;
+          return `git@github.com:${scope}/${packageName}.git`;
         }
       } else {
         // For non-scoped packages, assume it's directly on GitHub with the same name
