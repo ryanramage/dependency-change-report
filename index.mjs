@@ -82,9 +82,10 @@ const installDependencies = async (dir) => {
 /**
  * Get npm dependencies
  * @param {string} dir - Directory containing node_modules
+ * @param {string} namespace - Optional namespace to filter second-level dependencies
  * @returns {Promise<Object>} - Dependencies object
  */
-const getDependencies = async (dir) => {
+const getDependencies = async (dir, namespace = null) => {
   try {
     console.log(`Getting dependency list from ${dir}...`);
     const output = await executeCommand('npm', ['ls', '--all', '--omit=dev', '--json'], dir);
@@ -103,6 +104,43 @@ const getDependencies = async (dir) => {
             info.repository = packageJson.repository;
           } else if (packageJson.repository.url) {
             info.repository = packageJson.repository.url;
+          }
+        }
+        
+        // Get second-level dependencies if they exist
+        if (packageJson.dependencies) {
+          // Get the nested dependencies
+          const nestedDeps = {};
+          for (const [nestedName, nestedVersion] of Object.entries(packageJson.dependencies)) {
+            // If namespace is provided, only include dependencies in that namespace
+            if (!namespace || nestedName.startsWith(namespace)) {
+              try {
+                const nestedPackageDir = join(dir, 'node_modules', nestedName);
+                const nestedPackageJsonPath = join(nestedPackageDir, 'package.json');
+                const nestedPackageJson = JSON.parse(await readFile(nestedPackageJsonPath, 'utf8'));
+                
+                nestedDeps[nestedName] = { 
+                  version: nestedVersion,
+                  repository: null
+                };
+                
+                // Extract repository URL for nested dependency
+                if (nestedPackageJson.repository) {
+                  if (typeof nestedPackageJson.repository === 'string') {
+                    nestedDeps[nestedName].repository = nestedPackageJson.repository;
+                  } else if (nestedPackageJson.repository.url) {
+                    nestedDeps[nestedName].repository = nestedPackageJson.repository.url;
+                  }
+                }
+              } catch (err) {
+                console.warn(`Warning: Could not read package.json for nested dependency ${nestedName}: ${err.message}`);
+              }
+            }
+          }
+          
+          // Only add nested dependencies if there are any (after filtering)
+          if (Object.keys(nestedDeps).length > 0) {
+            info.dependencies = nestedDeps;
           }
         }
       } catch (err) {
@@ -620,7 +658,89 @@ const compareDependencies = (oldDeps, newDeps) => {
     }
   }
 
-  return { added, removed, upgraded, modified };
+  // Compare nested dependencies if they exist
+  const nestedAdded = [];
+  const nestedRemoved = [];
+  const nestedUpgraded = [];
+  const nestedModified = [];
+  
+  // Helper function to process nested dependencies
+  const processNestedDependencies = (oldParent, newParent, parentName) => {
+    if (!oldParent || !newParent) return;
+    
+    const oldNestedDeps = oldParent.dependencies || {};
+    const newNestedDeps = newParent.dependencies || {};
+    
+    // Compare nested dependencies
+    for (const [name, info] of Object.entries(newNestedDeps)) {
+      if (!oldNestedDeps[name]) {
+        nestedAdded.push({ 
+          name, 
+          version: info.version,
+          repository: info.repository,
+          parent: parentName
+        });
+      } else if (oldNestedDeps[name].version !== info.version) {
+        const oldVersion = oldNestedDeps[name].version;
+        const newVersion = info.version;
+        
+        let changeType = 'unknown';
+        try {
+          if (semver.valid(oldVersion) && semver.valid(newVersion)) {
+            if (semver.major(newVersion) > semver.major(oldVersion)) {
+              changeType = 'major';
+            } else if (semver.minor(newVersion) > semver.minor(oldVersion)) {
+              changeType = 'minor';
+            } else if (semver.patch(newVersion) > semver.patch(oldVersion)) {
+              changeType = 'patch';
+            }
+          }
+        } catch (error) {
+          console.warn(`Warning: Could not determine semver change type for nested dependency ${name}: ${error.message}`);
+        }
+
+        nestedUpgraded.push({
+          name,
+          oldVersion,
+          newVersion,
+          changeType,
+          repository: info.repository,
+          parent: parentName
+        });
+      }
+    }
+    
+    // Find removed nested dependencies
+    for (const [name, info] of Object.entries(oldNestedDeps)) {
+      if (!newNestedDeps[name]) {
+        nestedRemoved.push({ 
+          name, 
+          version: info.version,
+          parent: parentName
+        });
+      }
+    }
+  };
+  
+  // Process nested dependencies for each top-level dependency
+  for (const [name, info] of Object.entries(newDeps)) {
+    if (oldDeps[name] && info.dependencies) {
+      processNestedDependencies(oldDeps[name], info, name);
+    }
+  }
+  
+  return { 
+    added, 
+    removed, 
+    upgraded, 
+    modified,
+    nested: {
+      added: nestedAdded,
+      removed: nestedRemoved,
+      upgraded: nestedUpgraded,
+      modified: nestedModified
+    }
+  };
 };
 
 /**
@@ -629,9 +749,10 @@ const compareDependencies = (oldDeps, newDeps) => {
  * @param {string} ref1 - First git reference
  * @param {string} ref2 - Second git reference
  * @param {string} workingDir - Working directory (optional)
+ * @param {string} namespace - Optional namespace to filter second-level dependencies (e.g., @holepunch)
  * @returns {Promise<Object>} - Analysis report
  */
-const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, workingDir = process.cwd()) => {
+const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, workingDir = process.cwd(), namespace = null) => {
   // Extract project name from repo URL
   const projectName = basename(repoUrl, '.git');
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -652,9 +773,9 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     await installDependencies(olderVersionDir);
     await installDependencies(newerVersionDir);
     
-    // Get dependencies for both versions
-    const olderDeps = await getDependencies(olderVersionDir);
-    const newerDeps = await getDependencies(newerVersionDir);
+    // Get dependencies for both versions, with namespace filtering for second-level dependencies if specified
+    const olderDeps = await getDependencies(olderVersionDir, namespace);
+    const newerDeps = await getDependencies(newerVersionDir, namespace);
     
     // Compare dependencies
     const comparison = compareDependencies(olderDeps, newerDeps);
@@ -678,6 +799,15 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     Object.assign(changelogs, modifiedChangelogs);
     Object.assign(errors, modifiedErrors);
     
+    // Get changelogs for nested upgraded dependencies
+    console.log('Generating changelogs for nested upgraded dependencies...');
+    const { changelogs: nestedChangelogs, errors: nestedErrors } = 
+      await getChangelogs(comparison.nested.upgraded, newerVersionDir, reposDir);
+    
+    // Merge nested changelogs and errors
+    Object.assign(changelogs, nestedChangelogs);
+    Object.assign(errors, nestedErrors);
+    
     // Create report
     const report = {
       repository: repoUrl,
@@ -686,7 +816,8 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
       timestamp: new Date().toISOString(),
       changes: comparison,
       changelogs,
-      errors
+      errors,
+      namespace: namespace || null
     };
     
     // Write report to file

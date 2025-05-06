@@ -59,12 +59,28 @@ const generateHtml = (report) => {
   const changelogCount = Object.keys(report.changelogs).length;
   const errorCount = report.errors ? Object.keys(report.errors).length : 0;
   
+  // Get nested counts if available
+  const nestedAddedCount = report.changes.nested ? report.changes.nested.added.length : 0;
+  const nestedUpgradedCount = report.changes.nested ? report.changes.nested.upgraded.length : 0;
+  const nestedRemovedCount = report.changes.nested ? report.changes.nested.removed.length : 0;
+  
   // Generate HTML sections
   const addedSection = generateAddedSection(report.changes.added);
   const upgradedSection = generateUpgradedSection(report.changes.upgraded, report.changelogs);
   const removedSection = generateRemovedSection(report.changes.removed);
   const modifiedSection = generateModifiedSection(report.changes.modified || [], report.changelogs);
   const errorsSection = generateErrorsSection(report.errors || {});
+  
+  // Generate nested dependency sections if available
+  let nestedAddedSection = '';
+  let nestedUpgradedSection = '';
+  let nestedRemovedSection = '';
+  
+  if (report.changes.nested) {
+    nestedAddedSection = generateNestedAddedSection(report.changes.nested.added);
+    nestedUpgradedSection = generateNestedUpgradedSection(report.changes.nested.upgraded, report.changelogs);
+    nestedRemovedSection = generateNestedRemovedSection(report.changes.nested.removed);
+  }
   
   // Format timestamp
   const timestamp = new Date(report.timestamp).toLocaleString();
@@ -316,6 +332,7 @@ const generateHtml = (report) => {
         Repository: <a href="${repoDisplayUrl}" target="_blank">${repoDisplayUrl}</a><br>
         Comparing: <strong>${report.olderVersion}</strong> → <strong>${report.newerVersion}</strong><br>
         Generated: ${timestamp}
+        ${report.namespace ? `<br>Nested dependencies filtered by namespace: <strong>${report.namespace}</strong>` : ''}
       </p>
     </header>
     
@@ -346,10 +363,33 @@ const generateHtml = (report) => {
       </a>
     </div>
     
+    ${(nestedAddedCount > 0 || nestedUpgradedCount > 0 || nestedRemovedCount > 0) ? `
+    <h2>Nested Dependencies ${report.namespace ? `(Filtered by namespace: ${report.namespace})` : ''}</h2>
+    <div class="summary">
+      <a href="#nested-added-dependencies" class="summary-item added">
+        <div class="summary-count">${nestedAddedCount}</div>
+        <div>Nested Dependencies Added</div>
+      </a>
+      <a href="#nested-upgraded-dependencies" class="summary-item upgraded">
+        <div class="summary-count">${nestedUpgradedCount}</div>
+        <div>Nested Dependencies Upgraded</div>
+      </a>
+      <a href="#nested-removed-dependencies" class="summary-item removed">
+        <div class="summary-count">${nestedRemovedCount}</div>
+        <div>Nested Dependencies Removed</div>
+      </a>
+    </div>
+    ` : ''}
+    
     ${addedSection}
     ${upgradedSection}
     ${removedSection}
     ${modifiedSection}
+    
+    ${nestedAddedSection}
+    ${nestedUpgradedSection}
+    ${nestedRemovedSection}
+    
     ${errorsSection}
     
     <footer>
@@ -701,6 +741,160 @@ const generateErrorsSection = (errors) => {
           <th>Repository</th>
           <th>Version Change</th>
           <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+};
+
+/**
+ * Generate HTML section for nested added dependencies
+ * @param {Array} added - Added nested dependencies
+ * @returns {string} - HTML content
+ */
+const generateNestedAddedSection = (added) => {
+  if (added.length === 0) {
+    return '';
+  }
+  
+  const rows = added.map(dep => {
+    const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
+    const versionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.version}`;
+    const parentUrl = `https://www.npmjs.com/package/${dep.parent}`;
+    const repoUrl = dep.repository ? 
+      dep.repository.replace(/\.git$/, '')
+                   .replace(/^git@github\.com:/, 'https://github.com/')
+                   .replace(/^git\+https:/, 'https:') : 
+      null;
+    
+    return `
+      <tr>
+        <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
+        <td><a href="${versionUrl}" target="_blank">${dep.version}</a></td>
+        <td><a href="${parentUrl}" target="_blank">${dep.parent}</a></td>
+        <td>${repoUrl ? `<a href="${repoUrl}" target="_blank">${repoUrl}</a>` : 'N/A'}</td>
+      </tr>
+    `;
+  }).join('');
+  
+  return `
+    <h2 id="nested-added-dependencies">Nested Added Dependencies</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Package</th>
+          <th>Version</th>
+          <th>Parent Package</th>
+          <th>Repository</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+};
+
+/**
+ * Generate HTML section for nested upgraded dependencies
+ * @param {Array} upgraded - Upgraded nested dependencies
+ * @param {Object} changelogs - Changelogs for dependencies
+ * @returns {string} - HTML content
+ */
+const generateNestedUpgradedSection = (upgraded, changelogs) => {
+  if (upgraded.length === 0) {
+    return '';
+  }
+  
+  const rows = upgraded.map(dep => {
+    const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
+    const oldVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.oldVersion}`;
+    const newVersionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.newVersion}`;
+    const parentUrl = `https://www.npmjs.com/package/${dep.parent}`;
+    const repoUrl = dep.repository ? 
+      dep.repository.replace(/\.git$/, '')
+                   .replace(/^git@github\.com:/, 'https://github.com/')
+                   .replace(/^git\+https:/, 'https:') : 
+      (changelogs[dep.name] && changelogs[dep.name].repoUrl ? 
+        changelogs[dep.name].repoUrl.replace(/\.git$/, '')
+                            .replace(/^git@github\.com:/, 'https://github.com/')
+                            .replace(/^git\+https:/, 'https:') : 
+        null);
+      
+    const changeTypeBadge = `<span class="badge ${dep.changeType}">${dep.changeType}</span>`;
+      
+    // Add changelog link if available
+    const changelogLink = changelogs[dep.name] ? 
+      `<a href="#changelog-${dep.name}" title="View changelog">📋</a>` : 
+      'N/A';
+      
+    return `
+      <tr>
+        <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
+        <td><a href="${oldVersionUrl}" target="_blank">${dep.oldVersion}</a></td>
+        <td><a href="${newVersionUrl}" target="_blank">${dep.newVersion}</a> ${changeTypeBadge}</td>
+        <td><a href="${parentUrl}" target="_blank">${dep.parent}</a></td>
+        <td>${repoUrl ? `<a href="${repoUrl}" target="_blank">${repoUrl}</a>` : 'N/A'}</td>
+        <td>${changelogLink}</td>
+      </tr>
+    `;
+  }).join('');
+  
+  return `
+    <h2 id="nested-upgraded-dependencies">Nested Upgraded Dependencies</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Package</th>
+          <th>Old Version</th>
+          <th>New Version</th>
+          <th>Parent Package</th>
+          <th>Repository</th>
+          <th>Changelog</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+};
+
+/**
+ * Generate HTML section for nested removed dependencies
+ * @param {Array} removed - Removed nested dependencies
+ * @returns {string} - HTML content
+ */
+const generateNestedRemovedSection = (removed) => {
+  if (removed.length === 0) {
+    return '';
+  }
+  
+  const rows = removed.map(dep => {
+    const npmUrl = `https://www.npmjs.com/package/${dep.name}`;
+    const versionUrl = `https://www.npmjs.com/package/${dep.name}/v/${dep.version}`;
+    const parentUrl = `https://www.npmjs.com/package/${dep.parent}`;
+    
+    return `
+      <tr>
+        <td><a href="${npmUrl}" target="_blank">${dep.name}</a></td>
+        <td><a href="${versionUrl}" target="_blank">${dep.version}</a></td>
+        <td><a href="${parentUrl}" target="_blank">${dep.parent}</a></td>
+      </tr>
+    `;
+  }).join('');
+  
+  return `
+    <h2 id="nested-removed-dependencies">Nested Removed Dependencies</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Package</th>
+          <th>Version</th>
+          <th>Parent Package</th>
         </tr>
       </thead>
       <tbody>
