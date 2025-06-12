@@ -589,7 +589,7 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
  * Check if package-lock.json exists and get dependency changes from it
  * @param {string} olderVersionDir - Directory of older version
  * @param {string} newerVersionDir - Directory of newer version
- * @returns {Promise<Array>} - Array of package names that changed
+ * @returns {Promise<Object>} - Object with changed packages and their version info
  */
 const getPackageLockChanges = async (olderVersionDir, newerVersionDir) => {
   try {
@@ -602,7 +602,7 @@ const getPackageLockChanges = async (olderVersionDir, newerVersionDir) => {
       await readFile(newLockPath);
     } catch (error) {
       console.log('package-lock.json not found in one or both versions, skipping lock file analysis');
-      return [];
+      return { changedPackages: [], packageVersions: {} };
     }
     
     console.log('Found package-lock.json in both versions, analyzing changes...');
@@ -617,32 +617,51 @@ const getPackageLockChanges = async (olderVersionDir, newerVersionDir) => {
     
     // Find packages that changed, were added, or were removed
     const changedPackages = new Set();
+    const packageVersions = {};
     
     // Check for added and changed packages
     for (const [name, newInfo] of Object.entries(newPackages)) {
       if (!oldPackages[name]) {
         // Package was added
         changedPackages.add(name);
+        packageVersions[name] = {
+          oldVersion: null,
+          newVersion: newInfo.version,
+          changeType: 'added'
+        };
       } else if (oldPackages[name].version !== newInfo.version) {
         // Package version changed
         changedPackages.add(name);
+        packageVersions[name] = {
+          oldVersion: oldPackages[name].version,
+          newVersion: newInfo.version,
+          changeType: 'upgraded'
+        };
       }
     }
     
     // Check for removed packages
-    for (const [name] of Object.entries(oldPackages)) {
+    for (const [name, oldInfo] of Object.entries(oldPackages)) {
       if (!newPackages[name]) {
         // Package was removed
         changedPackages.add(name);
+        packageVersions[name] = {
+          oldVersion: oldInfo.version,
+          newVersion: null,
+          changeType: 'removed'
+        };
       }
     }
     
     console.log(`Found ${changedPackages.size} packages with changes in package-lock.json`);
-    return Array.from(changedPackages);
+    return { 
+      changedPackages: Array.from(changedPackages), 
+      packageVersions 
+    };
     
   } catch (error) {
     console.warn(`Warning: Failed to analyze package-lock.json changes: ${error.message}`);
-    return [];
+    return { changedPackages: [], packageVersions: {} };
   }
 };
 
@@ -1015,7 +1034,7 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     const comparison = compareDependencies(olderDeps, newerDeps);
     
     // Get package changes from package-lock.json if available
-    const lockFileChanges = await getPackageLockChanges(olderVersionDir, newerVersionDir);
+    const { changedPackages: lockFileChanges, packageVersions } = await getPackageLockChanges(olderVersionDir, newerVersionDir);
     
     // Create a combined list of packages to get changelogs for
     let allChangedPackages = [...comparison.upgraded];
@@ -1023,43 +1042,64 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     // Add any packages from lock file that aren't already in our list
     for (const packageName of lockFileChanges) {
       if (!comparison.upgraded.some(dep => dep.name === packageName)) {
-        // Try to get version info for this package
-        try {
-          const packageDir = join(newerVersionDir, 'node_modules', packageName);
-          const packageJsonPath = join(packageDir, 'package.json');
-          
-          let repoUrl = null;
-          let version = 'unknown';
-          
+        const versionInfo = packageVersions[packageName];
+        
+        // Only process upgraded packages for changelog generation
+        if (versionInfo.changeType === 'upgraded') {
           try {
-            const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-            version = packageJson.version || 'unknown';
+            const packageDir = join(newerVersionDir, 'node_modules', packageName);
+            const packageJsonPath = join(packageDir, 'package.json');
             
-            // Extract repository URL
-            if (packageJson.repository) {
-              if (typeof packageJson.repository === 'string') {
-                repoUrl = packageJson.repository;
-              } else if (packageJson.repository.url) {
-                repoUrl = packageJson.repository.url;
+            let repoUrl = null;
+            
+            try {
+              const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+              
+              // Extract repository URL
+              if (packageJson.repository) {
+                if (typeof packageJson.repository === 'string') {
+                  repoUrl = packageJson.repository;
+                } else if (packageJson.repository.url) {
+                  repoUrl = packageJson.repository.url;
+                }
               }
+            } catch (e) {
+              console.warn(`Could not read package.json for ${packageName}: ${e.message}`);
             }
-          } catch (e) {
-            console.warn(`Could not read package.json for ${packageName}: ${e.message}`);
+            
+            if (repoUrl) {
+              // Determine change type using semver if possible
+              let changeType = 'unknown';
+              try {
+                const oldVersion = versionInfo.oldVersion;
+                const newVersion = versionInfo.newVersion;
+                
+                if (semver.valid(oldVersion) && semver.valid(newVersion)) {
+                  if (semver.major(newVersion) > semver.major(oldVersion)) {
+                    changeType = 'major';
+                  } else if (semver.minor(newVersion) > semver.minor(oldVersion)) {
+                    changeType = 'minor';
+                  } else if (semver.patch(newVersion) > semver.patch(oldVersion)) {
+                    changeType = 'patch';
+                  }
+                }
+              } catch (error) {
+                console.warn(`Warning: Could not determine semver change type for ${packageName}: ${error.message}`);
+              }
+              
+              // Add to the list for changelog generation
+              allChangedPackages.push({
+                name: packageName,
+                oldVersion: versionInfo.oldVersion,
+                newVersion: versionInfo.newVersion,
+                repository: repoUrl,
+                changeType: changeType
+              });
+              console.log(`Added ${packageName} from package-lock.json analysis: ${versionInfo.oldVersion} → ${versionInfo.newVersion}`);
+            }
+          } catch (error) {
+            console.warn(`Could not get repository info for ${packageName}: ${error.message}`);
           }
-          
-          if (repoUrl) {
-            // Add to the list for changelog generation
-            allChangedPackages.push({
-              name: packageName,
-              oldVersion: 'unknown',
-              newVersion: version,
-              repository: repoUrl,
-              changeType: 'unknown'
-            });
-            console.log(`Added ${packageName} from package-lock.json analysis`);
-          }
-        } catch (error) {
-          console.warn(`Could not get repository info for ${packageName}: ${error.message}`);
         }
       }
     }
