@@ -22,38 +22,91 @@ const __dirname = dirname(__filename);
  */
 const executeCommand = (command, args, cwd, timeout = 300000) => {
   return new Promise((resolve, reject) => {
-    const process = spawn(command, args, { cwd });
+    const childProcess = spawn(command, args, { 
+      cwd,
+      detached: false,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
     let stdout = '';
     let stderr = '';
+    let isResolved = false;
 
-    // Set up timeout
+    // Set up timeout with proper cleanup
     const timeoutId = setTimeout(() => {
-      process.kill('SIGTERM');
-      reject(new Error(`Command timed out after ${timeout}ms: ${command} ${args.join(' ')}`));
+      if (!isResolved) {
+        isResolved = true;
+        
+        // Kill the process and all its children
+        try {
+          if (childProcess.pid) {
+            // Try to kill the process group first
+            process.kill(-childProcess.pid, 'SIGTERM');
+          }
+        } catch (e) {
+          // If that fails, kill just the process
+          try {
+            childProcess.kill('SIGTERM');
+          } catch (e2) {
+            // Force kill if SIGTERM doesn't work
+            try {
+              childProcess.kill('SIGKILL');
+            } catch (e3) {
+              // Process might already be dead
+            }
+          }
+        }
+        
+        reject(new Error(`Command timed out after ${timeout}ms: ${command} ${args.join(' ')}`));
+      }
     }, timeout);
 
-    process.stdout.on('data', (data) => {
+    childProcess.stdout.on('data', (data) => {
       stdout += data.toString();
     });
 
-    process.stderr.on('data', (data) => {
+    childProcess.stderr.on('data', (data) => {
       stderr += data.toString();
     });
 
-    process.on('close', (code) => {
-      clearTimeout(timeoutId);
-      if (code !== 0) {
-        console.warn(`Warning: Command ${command} ${args.join(' ')} failed with code ${code}`);
-        console.warn(`Error: ${stderr}`);
-        reject(new Error(`Command failed with code ${code}: ${stderr}`));
-      } else {
-        resolve(stdout);
+    childProcess.on('close', (code, signal) => {
+      if (!isResolved) {
+        isResolved = true;
+        clearTimeout(timeoutId);
+        
+        if (signal) {
+          reject(new Error(`Command was killed with signal ${signal}: ${command} ${args.join(' ')}`));
+        } else if (code !== 0) {
+          console.warn(`Warning: Command ${command} ${args.join(' ')} failed with code ${code}`);
+          console.warn(`Error: ${stderr}`);
+          reject(new Error(`Command failed with code ${code}: ${stderr}`));
+        } else {
+          resolve(stdout);
+        }
       }
     });
 
-    process.on('error', (error) => {
-      clearTimeout(timeoutId);
-      reject(error);
+    childProcess.on('error', (error) => {
+      if (!isResolved) {
+        isResolved = true;
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    });
+
+    // Handle process exit to ensure cleanup
+    childProcess.on('exit', (code, signal) => {
+      if (!isResolved) {
+        isResolved = true;
+        clearTimeout(timeoutId);
+        
+        if (signal) {
+          reject(new Error(`Command exited with signal ${signal}: ${command} ${args.join(' ')}`));
+        } else if (code !== 0) {
+          reject(new Error(`Command exited with code ${code}: ${command} ${args.join(' ')}`));
+        } else {
+          resolve(stdout);
+        }
+      }
     });
   });
 };
@@ -891,9 +944,30 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     await writeFile(reportPath, JSON.stringify(report, null, 2));
     
     console.log(`Report generated at ${reportPath}`);
+    
+    // Force cleanup of any remaining processes
+    if (process.platform !== 'win32') {
+      try {
+        // Kill any remaining git processes that might be hanging
+        await executeCommand('pkill', ['-f', 'git'], undefined, 5000);
+      } catch (e) {
+        // Ignore errors - processes might not exist
+      }
+    }
+    
     return report;
   } catch (error) {
     console.error(`Error analyzing dependency changes: ${error.message}`);
+    
+    // Force cleanup on error as well
+    if (process.platform !== 'win32') {
+      try {
+        await executeCommand('pkill', ['-f', 'git'], undefined, 5000);
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
     throw error;
   }
 };
