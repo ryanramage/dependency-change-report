@@ -56,11 +56,9 @@ const main = async () => {
     // Generate HTML and text reports
     console.log('\nGenerating additional report formats...');
     
-    // Extract project name and timestamp to find the report directory
-    const projectName = basename(repoUrl, '.git');
-    const timestamp = new Date(report.timestamp).toISOString().replace(/[:.]/g, '-');
-    const reportDir = join(workingDir || process.cwd(), `${projectName}-${timestamp}`);
-    const reportJsonPath = join(reportDir, 'report.json');
+    // Use the actual report directory path from the report
+    const reportJsonPath = report.reportPath;
+    const reportDir = dirname(reportJsonPath);
     
     // Generate HTML report
     const htmlPath = join(reportDir, 'report.html');
