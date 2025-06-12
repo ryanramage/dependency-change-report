@@ -249,9 +249,15 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
       // Continue without tags if fetch fails
     }
     
+    // Clean and validate version strings
+    const cleanVersion = (version) => {
+      // Remove any git special characters that could cause issues
+      return version.replace(/[\^~]/g, '').trim();
+    };
+    
     // Check if versions exist as tags by adding v prefix if needed
-    let oldRef = oldVersion;
-    let newRef = newVersion;
+    let oldRef = cleanVersion(oldVersion);
+    let newRef = cleanVersion(newVersion);
     
     // Try to resolve the references
     const checkRef = async (ref) => {
