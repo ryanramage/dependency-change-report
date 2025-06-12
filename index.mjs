@@ -1087,14 +1087,21 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
                 console.warn(`Warning: Could not determine semver change type for ${packageName}: ${error.message}`);
               }
               
-              // Add to the list for changelog generation
-              allChangedPackages.push({
+              // Create the dependency object
+              const lockFileDep = {
                 name: packageName,
                 oldVersion: versionInfo.oldVersion,
                 newVersion: versionInfo.newVersion,
                 repository: repoUrl,
                 changeType: changeType
-              });
+              };
+              
+              // Add to the list for changelog generation
+              allChangedPackages.push(lockFileDep);
+              
+              // Also add to the comparison.upgraded array so it appears in the report
+              comparison.upgraded.push(lockFileDep);
+              
               console.log(`Added ${packageName} from package-lock.json analysis: ${versionInfo.oldVersion} → ${versionInfo.newVersion}`);
             }
           } catch (error) {
