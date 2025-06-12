@@ -586,6 +586,121 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
 };
 
 /**
+ * Check if package-lock.json exists and get dependency changes from it
+ * @param {string} olderVersionDir - Directory of older version
+ * @param {string} newerVersionDir - Directory of newer version
+ * @returns {Promise<Array>} - Array of package names that changed
+ */
+const getPackageLockChanges = async (olderVersionDir, newerVersionDir) => {
+  try {
+    const oldLockPath = join(olderVersionDir, 'package-lock.json');
+    const newLockPath = join(newerVersionDir, 'package-lock.json');
+    
+    // Check if both files exist
+    try {
+      await readFile(oldLockPath);
+      await readFile(newLockPath);
+    } catch (error) {
+      console.log('package-lock.json not found in one or both versions, skipping lock file analysis');
+      return [];
+    }
+    
+    console.log('Found package-lock.json in both versions, analyzing changes...');
+    
+    // Read and parse both lock files
+    const oldLock = JSON.parse(await readFile(oldLockPath, 'utf8'));
+    const newLock = JSON.parse(await readFile(newLockPath, 'utf8'));
+    
+    // Extract all packages from lock files
+    const oldPackages = extractPackagesFromLock(oldLock);
+    const newPackages = extractPackagesFromLock(newLock);
+    
+    // Find packages that changed, were added, or were removed
+    const changedPackages = new Set();
+    
+    // Check for added and changed packages
+    for (const [name, newInfo] of Object.entries(newPackages)) {
+      if (!oldPackages[name]) {
+        // Package was added
+        changedPackages.add(name);
+      } else if (oldPackages[name].version !== newInfo.version) {
+        // Package version changed
+        changedPackages.add(name);
+      }
+    }
+    
+    // Check for removed packages
+    for (const [name] of Object.entries(oldPackages)) {
+      if (!newPackages[name]) {
+        // Package was removed
+        changedPackages.add(name);
+      }
+    }
+    
+    console.log(`Found ${changedPackages.size} packages with changes in package-lock.json`);
+    return Array.from(changedPackages);
+    
+  } catch (error) {
+    console.warn(`Warning: Failed to analyze package-lock.json changes: ${error.message}`);
+    return [];
+  }
+};
+
+/**
+ * Extract all packages from a package-lock.json structure
+ * @param {Object} lockData - Parsed package-lock.json data
+ * @returns {Object} - Map of package names to their info
+ */
+const extractPackagesFromLock = (lockData) => {
+  const packages = {};
+  
+  // Handle both lockfileVersion 1 and 2+ formats
+  if (lockData.lockfileVersion >= 2 && lockData.packages) {
+    // Version 2+ format uses "packages" field
+    for (const [path, info] of Object.entries(lockData.packages)) {
+      if (path === '') continue; // Skip root package
+      
+      // Extract package name from path (remove node_modules prefix)
+      const name = path.replace(/^node_modules\//, '');
+      if (info.version) {
+        packages[name] = {
+          version: info.version,
+          resolved: info.resolved,
+          integrity: info.integrity
+        };
+      }
+    }
+  } else if (lockData.dependencies) {
+    // Version 1 format uses "dependencies" field
+    extractFromDependencies(lockData.dependencies, packages);
+  }
+  
+  return packages;
+};
+
+/**
+ * Recursively extract packages from dependencies object (lockfile v1 format)
+ * @param {Object} dependencies - Dependencies object
+ * @param {Object} packages - Accumulator for packages
+ */
+const extractFromDependencies = (dependencies, packages) => {
+  for (const [name, info] of Object.entries(dependencies)) {
+    if (info.version) {
+      packages[name] = {
+        version: info.version,
+        resolved: info.resolved,
+        integrity: info.integrity
+      };
+    }
+    
+    // Recursively process nested dependencies
+    if (info.dependencies) {
+      extractFromDependencies(info.dependencies, packages);
+    }
+  }
+};
+
+/**
  * Get changelog for upgraded dependencies
  * @param {Array} upgradedDeps - Array of upgraded dependencies
  * @param {string} newerVersionDir - Directory of the newer version
@@ -899,9 +1014,59 @@ const analyzeDependencyChanges = async (repoUrl, olderVersion, newerVersion, wor
     // Compare dependencies
     const comparison = compareDependencies(olderDeps, newerDeps);
     
+    // Get package changes from package-lock.json if available
+    const lockFileChanges = await getPackageLockChanges(olderVersionDir, newerVersionDir);
+    
+    // Create a combined list of packages to get changelogs for
+    let allChangedPackages = [...comparison.upgraded];
+    
+    // Add any packages from lock file that aren't already in our list
+    for (const packageName of lockFileChanges) {
+      if (!comparison.upgraded.some(dep => dep.name === packageName)) {
+        // Try to get version info for this package
+        try {
+          const packageDir = join(newerVersionDir, 'node_modules', packageName);
+          const packageJsonPath = join(packageDir, 'package.json');
+          
+          let repoUrl = null;
+          let version = 'unknown';
+          
+          try {
+            const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+            version = packageJson.version || 'unknown';
+            
+            // Extract repository URL
+            if (packageJson.repository) {
+              if (typeof packageJson.repository === 'string') {
+                repoUrl = packageJson.repository;
+              } else if (packageJson.repository.url) {
+                repoUrl = packageJson.repository.url;
+              }
+            }
+          } catch (e) {
+            console.warn(`Could not read package.json for ${packageName}: ${e.message}`);
+          }
+          
+          if (repoUrl) {
+            // Add to the list for changelog generation
+            allChangedPackages.push({
+              name: packageName,
+              oldVersion: 'unknown',
+              newVersion: version,
+              repository: repoUrl,
+              changeType: 'unknown'
+            });
+            console.log(`Added ${packageName} from package-lock.json analysis`);
+          }
+        } catch (error) {
+          console.warn(`Could not get repository info for ${packageName}: ${error.message}`);
+        }
+      }
+    }
+    
     // Get changelogs for upgraded dependencies
-    console.log('Generating changelogs for upgraded dependencies...');
-    const { changelogs, errors } = await getChangelogs(comparison.upgraded, newerVersionDir, reposDir);
+    console.log(`Generating changelogs for ${allChangedPackages.length} dependencies (${comparison.upgraded.length} from npm ls + ${allChangedPackages.length - comparison.upgraded.length} from package-lock.json)...`);
+    const { changelogs, errors } = await getChangelogs(allChangedPackages, newerVersionDir, reposDir);
   
     // Get changelogs for modified dependencies (namespace changes)
     console.log('Generating changelogs for modified dependencies...');

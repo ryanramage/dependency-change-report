@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { generateHtmlReport } from './generate-html.mjs';
+import { dirname, join } from 'path';
 
 // CLI interface
 const main = async () => {
@@ -14,7 +15,10 @@ const main = async () => {
     
     const [jsonPath, outputPath] = args;
     
-    await generateHtmlReport(jsonPath, outputPath);
+    // If no output path specified, create report.html in the same directory as the JSON file
+    const finalOutputPath = outputPath || join(dirname(jsonPath), 'report.html');
+    
+    await generateHtmlReport(jsonPath, finalOutputPath);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
