@@ -17,13 +17,20 @@ const __dirname = dirname(__filename);
  * @param {string} command - The command to execute
  * @param {string[]} args - Arguments for the command
  * @param {string} cwd - Working directory
+ * @param {number} timeout - Timeout in milliseconds (default: 5 minutes)
  * @returns {Promise<string>} - Command output
  */
-const executeCommand = (command, args, cwd) => {
+const executeCommand = (command, args, cwd, timeout = 300000) => {
   return new Promise((resolve, reject) => {
     const process = spawn(command, args, { cwd });
     let stdout = '';
     let stderr = '';
+
+    // Set up timeout
+    const timeoutId = setTimeout(() => {
+      process.kill('SIGTERM');
+      reject(new Error(`Command timed out after ${timeout}ms: ${command} ${args.join(' ')}`));
+    }, timeout);
 
     process.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -34,6 +41,7 @@ const executeCommand = (command, args, cwd) => {
     });
 
     process.on('close', (code) => {
+      clearTimeout(timeoutId);
       if (code !== 0) {
         console.warn(`Warning: Command ${command} ${args.join(' ')} failed with code ${code}`);
         console.warn(`Error: ${stderr}`);
@@ -41,6 +49,11 @@ const executeCommand = (command, args, cwd) => {
       } else {
         resolve(stdout);
       }
+    });
+
+    process.on('error', (error) => {
+      clearTimeout(timeoutId);
+      reject(error);
     });
   });
 };
@@ -212,22 +225,29 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     const tempDir = join(reposDir, `${packageName}-history`);
     await mkdir(tempDir, { recursive: true });
     
-    // Clone the repository
+    // Clone the repository with optimizations for faster cloning
     console.log(`Cloning ${repoUrl} into ${tempDir} to get commit history...`);
     // Use --quiet to avoid printing credentials in logs
+    // Use --depth=1 and --single-branch for faster cloning, then fetch what we need
     try {
-      await executeCommand('git', ['clone', '--quiet', repoUrl, tempDir]);
+      await executeCommand('git', ['clone', '--quiet', '--depth=1', '--single-branch', repoUrl, tempDir], undefined, 120000); // 2 minute timeout for clone
     } catch (error) {
       // If the repository doesn't exist or can't be accessed, throw a more specific error
       if (error.message.includes("Repository not found") || 
-          error.message.includes("Could not read from remote repository")) {
-        throw new Error(`Repository not found or inaccessible: ${error.message}`);
+          error.message.includes("Could not read from remote repository") ||
+          error.message.includes("timed out")) {
+        throw new Error(`Repository not found, inaccessible, or clone timed out: ${error.message}`);
       }
       throw error;
     }
     
     // Fetch all tags to ensure we have the version references
-    await executeCommand('git', ['fetch', '--tags', '--force'], tempDir);
+    try {
+      await executeCommand('git', ['fetch', '--tags', '--force', '--unshallow'], tempDir, 60000); // 1 minute timeout
+    } catch (error) {
+      console.warn(`Warning: Failed to fetch tags: ${error.message}`);
+      // Continue without tags if fetch fails
+    }
     
     // Check if versions exist as tags by adding v prefix if needed
     let oldRef = oldVersion;
@@ -237,7 +257,12 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     const checkRef = async (ref) => {
       try {
         // Make sure we're in the right directory and have fetched everything
-        await executeCommand('git', ['fetch', '--all'], tempDir);
+        try {
+          await executeCommand('git', ['fetch', '--all'], tempDir, 60000); // 1 minute timeout
+        } catch (error) {
+          console.warn(`Warning: Failed to fetch all refs: ${error.message}`);
+          // Continue without full fetch
+        }
         
         // Try to get the commit hash for the reference
         const result = await executeCommand('git', ['rev-parse', '--verify', ref], tempDir);
