@@ -261,53 +261,41 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     
     // Try to resolve the references
     const checkRef = async (ref) => {
+      // Make sure we're in the right directory and have fetched everything
       try {
-        // Make sure we're in the right directory and have fetched everything
-        try {
-          await executeCommand('git', ['fetch', '--all'], tempDir, 60000); // 1 minute timeout
-        } catch (error) {
-          console.warn(`Warning: Failed to fetch all refs: ${error.message}`);
-          // Continue without full fetch
-        }
-        
-        // Try to get the commit hash for the reference
-        const result = await executeCommand('git', ['rev-parse', '--verify', ref], tempDir);
-        return { ref: ref, hash: result.trim() };
+        await executeCommand('git', ['fetch', '--all'], tempDir, 60000); // 1 minute timeout
       } catch (error) {
-        // If not found, try with 'v' prefix
-        if (!ref.startsWith('v')) {
-          try {
-            const result = await executeCommand('git', ['rev-parse', '--verify', `v${ref}`], tempDir);
-            return { ref: `v${ref}`, hash: result.trim() };
-          } catch (e) {
-            // Try as a tag
-            try {
-              const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/${ref}`], tempDir);
-              return { ref: ref, hash: result.trim() };
-            } catch (e2) {
-              // Try with v prefix as a tag
-              if (!ref.startsWith('v')) {
-                try {
-                  const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/v${ref}`], tempDir);
-                  return { ref: `v${ref}`, hash: result.trim() };
-                } catch (e3) {
-                  // Neither version found as direct reference
-                  return null;
-                }
-              }
-              return null;
-            }
-          }
-        } else {
-          // Try as a tag if it already has v prefix
-          try {
-            const result = await executeCommand('git', ['rev-parse', '--verify', `refs/tags/${ref}`], tempDir);
-            return { ref: ref, hash: result.trim() };
-          } catch (e) {
-            return null;
-          }
+        console.warn(`Warning: Failed to fetch all refs: ${error.message}`);
+        // Continue without full fetch
+      }
+      
+      // List of reference patterns to try
+      const refPatterns = [
+        ref,                    // Direct reference
+        `v${ref}`,             // With v prefix
+        `refs/tags/${ref}`,    // As tag
+        `refs/tags/v${ref}`,   // As tag with v prefix
+        `origin/${ref}`,       // As branch on origin
+        `refs/heads/${ref}`,   // As local branch
+        `refs/remotes/origin/${ref}` // As remote branch
+      ];
+      
+      // Remove duplicates (in case ref already starts with 'v')
+      const uniquePatterns = [...new Set(refPatterns)];
+      
+      for (const pattern of uniquePatterns) {
+        try {
+          const result = await executeCommand('git', ['rev-parse', '--verify', pattern], tempDir);
+          console.log(`Found reference ${ref} as ${pattern}`);
+          return { ref: pattern, hash: result.trim() };
+        } catch (error) {
+          // Continue to next pattern
+          continue;
         }
       }
+      
+      // If no direct reference found, return null
+      return null;
     };
     
     // Find commit with version bump
@@ -379,6 +367,53 @@ const getCommitHistory = async (repoUrl, oldVersion, newVersion, reposDir) => {
     if (!resolvedNewRef) {
       console.log(`Reference ${newVersion} not found directly, looking for version bump commit...`);
       resolvedNewRef = await findVersionCommit(newVersion);
+    }
+    
+    // If still no references found, try to get all tags and find closest matches
+    if (!resolvedOldRef || !resolvedNewRef) {
+      console.log('Trying to find closest version matches from available tags...');
+      try {
+        const tagsOutput = await executeCommand('git', ['tag', '-l'], tempDir);
+        const availableTags = tagsOutput.split('\n').filter(tag => tag.trim());
+        
+        if (!resolvedOldRef) {
+          // Try to find a tag that contains the old version
+          const oldMatch = availableTags.find(tag => 
+            tag.includes(oldVersion) || 
+            tag.replace(/^v/, '') === oldVersion ||
+            tag === `v${oldVersion}`
+          );
+          if (oldMatch) {
+            try {
+              const result = await executeCommand('git', ['rev-parse', '--verify', oldMatch], tempDir);
+              resolvedOldRef = { ref: oldMatch, hash: result.trim() };
+              console.log(`Found closest match for ${oldVersion}: ${oldMatch}`);
+            } catch (e) {
+              // Continue to fallback
+            }
+          }
+        }
+        
+        if (!resolvedNewRef) {
+          // Try to find a tag that contains the new version
+          const newMatch = availableTags.find(tag => 
+            tag.includes(newVersion) || 
+            tag.replace(/^v/, '') === newVersion ||
+            tag === `v${newVersion}`
+          );
+          if (newMatch) {
+            try {
+              const result = await executeCommand('git', ['rev-parse', '--verify', newMatch], tempDir);
+              resolvedNewRef = { ref: newMatch, hash: result.trim() };
+              console.log(`Found closest match for ${newVersion}: ${newMatch}`);
+            } catch (e) {
+              // Continue to fallback
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Warning: Failed to get available tags: ${error.message}`);
+      }
     }
     
     // Last resort: if we can't find specific versions, use default branch for newer and first commit for older
