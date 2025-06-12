@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-import { analyzeDependencyChanges } from './index.mjs';
+import { analyzeDependencyChanges } from './lib/index.mjs';
+import { generateHtmlReport } from './lib/generate-html.mjs';
+import { generateTextReport } from './lib/generate-text.mjs';
+import { dirname, join, basename } from 'path';
 
 // CLI interface
 const main = async () => {
@@ -11,6 +14,11 @@ const main = async () => {
       console.error('Usage: node cli.mjs <github-repo> <older-version> <newer-version> [working-dir] [namespace]');
       console.error('  <older-version> and <newer-version> can be any git reference (tag, branch, commit)');
       console.error('  [namespace] is optional - if provided, only second-level dependencies within this namespace will be analyzed (e.g., @holepunch)');
+      console.error('');
+      console.error('This command generates three files:');
+      console.error('  - report.json (raw data)');
+      console.error('  - report.html (web-friendly report)');
+      console.error('  - report.txt (Slack-friendly text report)');
       process.exit(1);
     }
     
@@ -44,6 +52,28 @@ const main = async () => {
     const errorCount = Object.keys(report.errors).length;
     console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
     console.log(`Encountered errors with ${errorCount} dependencies`);
+    
+    // Generate HTML and text reports
+    console.log('\nGenerating additional report formats...');
+    
+    // Extract project name and timestamp to find the report directory
+    const projectName = basename(repoUrl, '.git');
+    const timestamp = new Date(report.timestamp).toISOString().replace(/[:.]/g, '-');
+    const reportDir = join(workingDir || process.cwd(), `${projectName}-${timestamp}`);
+    const reportJsonPath = join(reportDir, 'report.json');
+    
+    // Generate HTML report
+    const htmlPath = join(reportDir, 'report.html');
+    await generateHtmlReport(reportJsonPath, htmlPath);
+    
+    // Generate text report
+    const textPath = join(reportDir, 'report.txt');
+    await generateTextReport(reportJsonPath, textPath);
+    
+    console.log('\nAll reports generated successfully!');
+    console.log(`📄 JSON: ${reportJsonPath}`);
+    console.log(`🌐 HTML: ${htmlPath}`);
+    console.log(`📝 Text: ${textPath}`);
     
     // Display repository information for added dependencies
     if (report.changes.added.length > 0) {
