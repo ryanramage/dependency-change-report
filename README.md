@@ -1,4 +1,4 @@
-# Deep Depends Report
+# Dependency Change Report
 
 A tool to analyze dependency changes between different versions of a Node.js project and generate detailed reports with changelogs.
 
@@ -13,22 +13,26 @@ A tool to analyze dependency changes between different versions of a Node.js pro
 
 ## Installation
 
+### Using npx (Recommended)
+
+No installation required! Run directly with npx:
+
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/deep-depends-report.git
-cd deep-depends-report
-
-# Install dependencies
-npm install
-
-# Make CLI scripts executable
-chmod +x cli.mjs html-cli.mjs
+npx dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
 ```
 
-For global installation:
+### Global Installation (Alternative)
+
+For frequent use, you can install globally:
 
 ```bash
-npm install -g .
+npm install -g dependency-change-report
+```
+
+Then run with:
+
+```bash
+dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
 ```
 
 ## Usage
@@ -38,37 +42,29 @@ npm install -g .
 Generate a dependency report:
 
 ```bash
-# Using node directly
-node cli.mjs <github-repo> <older-version> <newer-version> [working-dir]
-
-# Using npm script
-npm run report -- <github-repo> <older-version> <newer-version> [working-dir]
+# Using npx (recommended)
+npx dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
 
 # If installed globally
-deep-depends-report <github-repo> <older-version> <newer-version> [working-dir]
+dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
 ```
 
-Generate an HTML report from a JSON report:
-
-```bash
-# Using node directly
-node html-cli.mjs <report.json> [output.html]
-
-# Using npm script
-npm run html -- <report.json> [output.html]
-
-# If installed globally
-deep-depends-html <report.json> [output.html]
-```
+The tool automatically generates three report formats:
+- `report.json` - Raw data in JSON format
+- `report.html` - Web-friendly HTML report
+- `report.txt` - Slack-friendly text report
 
 ### Examples
 
 ```bash
 # Generate a report comparing v1.0.0 and v2.0.0 of a repository
-node cli.mjs git@github.com:user/repo.git v1.0.0 v2.0.0
+npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0
 
-# Generate an HTML report from a JSON report
-node html-cli.mjs ./repo-name-2023-05-04T12-34-56-789Z/report.json ./report.html
+# Generate a report with a specific working directory
+npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0 /tmp/analysis
+
+# Filter nested dependencies by namespace (e.g., @holepunch)
+npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0 . @holepunch
 ```
 
 ### Programmatic Usage
@@ -76,8 +72,9 @@ node html-cli.mjs ./repo-name-2023-05-04T12-34-56-789Z/report.json ./report.html
 You can also use the tool programmatically in your own Node.js projects:
 
 ```javascript
-import { analyzeDependencyChanges } from 'deep-depends-report';
-import { generateHtmlReport } from 'deep-depends-report/generate-html.mjs';
+import { analyzeDependencyChanges } from 'dependency-change-report';
+import { generateHtmlReport } from 'dependency-change-report/lib/generate-html.mjs';
+import { generateTextReport } from 'dependency-change-report/lib/generate-text.mjs';
 
 // Generate a dependency report
 const report = await analyzeDependencyChanges(
@@ -88,6 +85,9 @@ const report = await analyzeDependencyChanges(
 
 // Generate an HTML report from a JSON report
 await generateHtmlReport('./path/to/report.json', './path/to/output.html');
+
+// Generate a text report from a JSON report
+await generateTextReport('./path/to/report.json', './path/to/output.txt');
 ```
 
 ## Report Structure
