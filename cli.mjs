@@ -11,7 +11,7 @@ const main = async () => {
     const args = process.argv.slice(2);
     
     if (args.length < 3) {
-      console.error('Usage: node cli.mjs <github-repo> <older-version> <newer-version> [working-dir] [namespace]');
+      console.error('Usage: dependency-change-report <github-repo> <older-version> <newer-version> [working-dir] [namespace]');
       console.error('  <older-version> and <newer-version> can be any git reference (tag, branch, commit)');
       console.error('  [namespace] is optional - if provided, only second-level dependencies within this namespace will be analyzed (e.g., @holepunch)');
       console.error('');
