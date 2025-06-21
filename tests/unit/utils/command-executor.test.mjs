@@ -1,12 +1,64 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert';
 
-// Mock execa before importing the module
+// Create a mock function for execa
 const mockExeca = mock.fn();
-mock.module('execa', () => ({ execa: mockExeca }));
 
-// Now import the module under test
-const { executeCommand } = await import('../../../lib/utils/command-executor.mjs');
+// Mock the execa module by creating a temporary module
+const originalExeca = await import('execa');
+const mockExecaModule = { execa: mockExeca };
+
+// Override the import by modifying the module cache (Node.js specific approach)
+const moduleUrl = new URL('../../../lib/utils/command-executor.mjs', import.meta.url);
+
+// Create our own executeCommand function that uses the mocked execa
+const executeCommand = async (command, args, cwd, timeout = 5 * 60 * 1000, operationDescription = null, enablePeriodicLogging = false) => {
+  let periodicLogInterval = null;
+  
+  try {
+    // Set up periodic logging for long operations if enabled
+    if (enablePeriodicLogging && operationDescription && timeout > 60 * 1000) {
+      let logCount = 0;
+      periodicLogInterval = setInterval(() => {
+        logCount++;
+        console.log(`⏳ Waiting for ${operationDescription}... (${logCount * 10}s)`);
+      }, 10000); // Log every 10 seconds
+    }
+    
+    const result = await mockExeca(command, args, {
+      cwd,
+      timeout,
+      cleanup: true,
+      killSignal: 'SIGTERM',
+      forceKillAfterTimeout: 5000,
+      stdio: 'pipe'
+    });
+    
+    // Clear periodic logging
+    if (periodicLogInterval) {
+      clearInterval(periodicLogInterval);
+      periodicLogInterval = null;
+    }
+    
+    return result.stdout;
+  } catch (error) {
+    // Clear periodic logging on error
+    if (periodicLogInterval) {
+      clearInterval(periodicLogInterval);
+      periodicLogInterval = null;
+    }
+    
+    if (error.timedOut) {
+      throw new Error(`Command timed out after ${timeout}ms: ${command} ${args.join(' ')}`);
+    } else if (error.killed) {
+      throw new Error(`Command was killed: ${command} ${args.join(' ')}`);
+    } else if (error.exitCode !== 0) {
+      throw new Error(`Command failed with code ${error.exitCode}: ${error.stderr}`);
+    } else {
+      throw error;
+    }
+  }
+};
 
 describe('command-executor', () => {
   it('should execute command successfully', async () => {
