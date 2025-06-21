@@ -1,27 +1,5 @@
 {
   "name": "dependency-change-report",
-  "version": "1.0.6",
-  "main": "index.mjs",
-  "type": "module",
-  "bin": {
-    "dependency-change-report": "./cli.mjs"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "Ryan Ramage",
-  "license": "ISC",
-  "keywords": [],
-  "description": "Generate a dependency change report between different versions of a project",
-  "dependencies": {
-    "cli-progress": "^3.12.0",
-    "execa": "^9.6.0",
-    "semver": "^7.7.1",
-    "p-queue": "^8.0.1"
-  }
-}
-{
-  "name": "dependency-change-report",
   "version": "1.0.0",
   "type": "module",
   "description": "Generate dependency change reports between git references",
