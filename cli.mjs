@@ -5,7 +5,10 @@ import { generateHtmlReport } from './lib/generate-html.mjs';
 import { generateTextReport } from './lib/generate-text.mjs';
 import { dirname, join, basename } from 'path';
 
-// CLI interface
+/**
+ * CLI interface for dependency change analysis
+ * @returns {Promise<void>}
+ */
 const main = async () => {
   try {
     const args = process.argv.slice(2);
