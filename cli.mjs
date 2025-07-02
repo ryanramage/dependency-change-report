@@ -3,6 +3,7 @@
 import { analyzeDependencyChanges } from './lib/index.mjs';
 import { generateHtmlReport } from './lib/generate-html.mjs';
 import { generateTextReport } from './lib/generate-text.mjs';
+import { generateMarkdownReport } from './lib/generate-markdown.mjs';
 import { dirname, join, basename } from 'path';
 
 /**
@@ -18,9 +19,10 @@ const main = async () => {
       console.error('  <older-version> and <newer-version> can be any git reference (tag, branch, commit)');
       console.error('  [namespace] is optional - if provided, only second-level dependencies within this namespace will be analyzed (e.g., @holepunch)');
       console.error('');
-      console.error('This command generates three files:');
+      console.error('This command generates four files:');
       console.error('  - report.json (raw data)');
       console.error('  - report.html (web-friendly report)');
+      console.error('  - report.md (markdown report)');
       console.error('  - report.txt (Slack-friendly text report)');
       process.exit(1);
     }
@@ -56,7 +58,7 @@ const main = async () => {
     console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
     console.log(`Encountered errors with ${errorCount} dependencies`);
     
-    // Generate HTML and text reports
+    // Generate HTML, Markdown, and text reports
     console.log('\nGenerating additional report formats...');
     
     // Use the actual report directory path from the report
@@ -67,6 +69,10 @@ const main = async () => {
     const htmlPath = join(reportDir, 'report.html');
     await generateHtmlReport(reportJsonPath, htmlPath);
     
+    // Generate Markdown report
+    const markdownPath = join(reportDir, 'report.md');
+    await generateMarkdownReport(reportJsonPath, markdownPath);
+    
     // Generate text report
     const textPath = join(reportDir, 'report.txt');
     await generateTextReport(reportJsonPath, textPath);
@@ -74,6 +80,7 @@ const main = async () => {
     console.log('\nAll reports generated successfully!');
     console.log(`📄 JSON: ${reportJsonPath}`);
     console.log(`🌐 HTML: ${htmlPath}`);
+    console.log(`📝 Markdown: ${markdownPath}`);
     console.log(`📝 Text: ${textPath}`);
     
     // Display repository information for added dependencies
