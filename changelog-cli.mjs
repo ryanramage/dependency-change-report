@@ -48,6 +48,7 @@ const main = async () => {
     
     console.log(`Generating CHANGELOG from ${jsonPath}...`);
     console.log(`Using LLM command: ${llmCommand}`);
+    console.log('Note: This may take a while as each dependency\'s commits are summarized by the LLM...\n');
     
     const changelogPath = await generateChangelogReport(jsonPath, outputPath, llmCommand);
     
