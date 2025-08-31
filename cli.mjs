@@ -8,6 +8,7 @@ import { detectVersions } from './lib/utils/version-detector.mjs';
 import { dirname, join, basename } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
+import { executeCommand } from './lib/utils/command-executor.mjs';
 
 const compare = command(
   'compare',
@@ -129,10 +130,22 @@ const auto = command(
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
-  arg('<repo>', 'repo url'),
+  arg('[repo]', 'repo url (optional if in git directory)'),
   async () => {
     try {
-      const repoUrl = auto.args.repo;
+      let repoUrl = auto.args.repo;
+      
+      // If no repo provided, try to get it from git remote
+      if (!repoUrl) {
+        try {
+          const result = await executeCommand('git', ['remote', 'get-url', 'origin'], '.', 5000);
+          repoUrl = result.stdout.trim();
+          console.log(`Detected git remote: ${repoUrl}`);
+        } catch (error) {
+          throw new Error('No repo URL provided and could not detect git remote. Either provide a repo URL or run from within a git repository.');
+        }
+      }
+      
       // Use temp directory if working-dir not specified
       let workingDir = auto.flags['working-dir'];
       if (!workingDir) {
