@@ -192,6 +192,28 @@ const auto = command(
           await generateTextReport(reportJsonPath, textPath);
           console.log(`📝 Text: ${textPath}`);
         }
+      } else {
+        // Generate HTML, Markdown, and text reports by default
+        console.log('\nGenerating additional report formats...');
+        
+        const reportJsonPath = report.reportPath;
+        const reportDir = dirname(reportJsonPath);
+        
+        // Generate HTML report
+        const htmlPath = join(reportDir, 'report.html');
+        await generateHtmlReport(reportJsonPath, htmlPath);
+        
+        // Generate Markdown report
+        const markdownPath = join(reportDir, 'report.md');
+        await generateMarkdownReport(reportJsonPath, markdownPath);
+        
+        // Generate text report
+        const textPath = join(reportDir, 'report.txt');
+        await generateTextReport(reportJsonPath, textPath);
+        
+        console.log(`🌐 HTML: ${htmlPath}`);
+        console.log(`📝 Markdown: ${markdownPath}`);
+        console.log(`📝 Text: ${textPath}`);
       }
       
       console.log('\nReport generated successfully!');
