@@ -22,20 +22,6 @@ const compare = command(
     console.log('compare', compare.args, compare.flags)
   }
 )
-const release = command(
-  'release',
-  flag('--ignore-dev', 'ignore dev dependencies'),
-  flag('--working-dir [path]', 'the working dir for the report. If not provided, then cwd is used'),
-  flag('--html', 'generate a html report'),
-  flag('--markdown', 'generate a markdown report'),
-  flag('--text', 'generate a text only report'),
-  arg('<repo>', 'repo url'),
-  arg('[tag]', 'tag or branch'),
-  () => {
-    console.log('release', release.args, release.flags)
-  }
-
-)
 
 const auto = command(
   'auto',
