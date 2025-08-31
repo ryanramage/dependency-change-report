@@ -5,6 +5,40 @@ import { generateHtmlReport } from './lib/generate-html.mjs';
 import { generateTextReport } from './lib/generate-text.mjs';
 import { generateMarkdownReport } from './lib/generate-markdown.mjs';
 import { dirname, join, basename } from 'path';
+import { command, flag, arg, summary, rest } from 'paparam'
+
+const compare = command(
+  'compare',
+  flag('--ignore-dev', 'ignore dev dependencies'),
+  flag('--working-dir [path]', 'the working dir for the report. If not provided, then cwd is used'),
+  flag('--html', 'generate a html report'),
+  flag('--markdown', 'generate a markdown report'),
+  flag('--text', 'generate a text only report'),
+  arg('<repo>', 'repo url'),
+  arg('<older>', 'the older tag, commit, or branch'),
+  arg('[newer]', 'the newer tag, commit, or branch'),
+  () => {
+    console.log('compare', compare.args, compare.flags)
+  }
+)
+const release = command(
+  'release',
+  flag('--ignore-dev', 'ignore dev dependencies'),
+  flag('--working-dir [path]', 'the working dir for the report. If not provided, then cwd is used'),
+  flag('--html', 'generate a html report'),
+  flag('--markdown', 'generate a markdown report'),
+  flag('--text', 'generate a text only report'),
+  arg('<repo>', 'repo url'),
+  arg('[tag]', 'tag or branch'),
+  () => {
+    console.log('release', release.args, release.flags)
+  }
+
+)
+const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, release )
+const init = async () => {
+  cmd.parse()
+}
 
 /**
  * CLI interface for dependency change analysis
@@ -99,4 +133,4 @@ const main = async () => {
 };
 
 // Run the main function
-main();
+init();
