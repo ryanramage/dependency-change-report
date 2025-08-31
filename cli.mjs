@@ -139,10 +139,10 @@ const auto = command(
       if (!repoUrl) {
         try {
           const result = await executeCommand('git', ['remote', 'get-url', 'origin'], process.cwd(), 10000, 'detecting git remote');
-          if (!result || !result.stdout) {
+          if (!result) {
             throw new Error('Git command returned no output');
           }
-          repoUrl = result.stdout.trim();
+          repoUrl = result.trim()
           if (!repoUrl) {
             throw new Error('Git remote URL is empty');
           }
