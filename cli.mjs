@@ -34,7 +34,7 @@ const compare = command(
       
       console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
       
-      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, compare.flags['ignore-dev']);
+      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, compare.flags.ignoreDev);
       
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
@@ -147,7 +147,7 @@ const auto = command(
       
       console.log(`Analyzing dependency changes between ${older} and ${newer}`);
       
-      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, auto.flags['ignore-dev']);
+      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, auto.flags.ignoreDev);
       
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
