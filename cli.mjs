@@ -138,10 +138,11 @@ const auto = command(
       // If no repo provided, try to get it from git remote
       if (!repoUrl) {
         try {
-          const result = await executeCommand('git', ['remote', 'get-url', 'origin'], '.', 5000);
+          const result = await executeCommand('git', ['remote', 'get-url', 'origin'], process.cwd(), 10000, 'detecting git remote');
           repoUrl = result.stdout.trim();
           console.log(`Detected git remote: ${repoUrl}`);
         } catch (error) {
+          console.error(`Failed to detect git remote: ${error.message}`);
           throw new Error('No repo URL provided and could not detect git remote. Either provide a repo URL or run from within a git repository.');
         }
       }
