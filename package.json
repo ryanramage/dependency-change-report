@@ -28,6 +28,7 @@
     "env-paths": "^3.0.0",
     "execa": "^8.0.1",
     "p-queue": "^8.0.1",
+    "paparam": "^1.8.5",
     "semver": "^7.5.4"
   },
   "engines": {

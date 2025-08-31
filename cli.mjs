@@ -225,7 +225,7 @@ const auto = command(
     }
   }
 )
-const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, release, auto )
+const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, auto )
 const init = async () => {
   cmd.parse()
 }
