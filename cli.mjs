@@ -139,7 +139,13 @@ const auto = command(
       if (!repoUrl) {
         try {
           const result = await executeCommand('git', ['remote', 'get-url', 'origin'], process.cwd(), 10000, 'detecting git remote');
+          if (!result || !result.stdout) {
+            throw new Error('Git command returned no output');
+          }
           repoUrl = result.stdout.trim();
+          if (!repoUrl) {
+            throw new Error('Git remote URL is empty');
+          }
           console.log(`Detected git remote: ${repoUrl}`);
         } catch (error) {
           console.error(`Failed to detect git remote: ${error.message}`);
