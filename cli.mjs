@@ -23,7 +23,7 @@ const compare = command(
   arg('[newer]', 'the newer tag, commit, or branch'),
   async () => {
     try {
-      const repoUrl = compare.args.repo;
+      let repoUrl = compare.args.repo;
       const olderVersion = compare.args.older;
       const newerVersion = compare.args.newer;
       
