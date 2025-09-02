@@ -1,0 +1,112 @@
+name: Dependency Change Report
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+
+jobs:
+  dependency-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for version detection
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Generate dependency report
+        id: dep-report
+        run: npx dependency-change-report auto --output-dir ./reports
+        continue-on-error: true
+      
+      - name: Upload reports as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-report-${{ github.event_name }}-${{ github.run_number }}
+          path: ./reports/
+          retention-days: 30
+      
+      # Only comment on PRs, not pushes
+      - name: Comment PR with dependency report
+        if: github.event_name == 'pull_request' && steps.dep-report.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Look for the markdown report
+            const reportDir = './reports';
+            const files = fs.readdirSync(reportDir);
+            const markdownFile = files.find(f => f.endsWith('.md'));
+            
+            if (markdownFile) {
+              const reportPath = path.join(reportDir, markdownFile);
+              const report = fs.readFileSync(reportPath, 'utf8');
+              
+              // Add a header with artifact download link
+              const artifactName = `dependency-report-${{ github.event_name }}-${{ github.run_number }}`;
+              const header = `## 📦 Dependency Change Report
+              
+              📊 **[Download Full Report Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})**
+              
+              ---
+              
+              `;
+              
+              const fullReport = header + report;
+              
+              // Check if we already commented
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              });
+              
+              const botComment = comments.find(comment => 
+                comment.user.type === 'Bot' && 
+                comment.body.includes('📦 Dependency Change Report')
+              );
+              
+              if (botComment) {
+                // Update existing comment
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: fullReport
+                });
+              } else {
+                // Create new comment
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: fullReport
+                });
+              }
+            }
+      
+      - name: Check for major dependency changes
+        if: steps.dep-report.outcome == 'success'
+        run: |
+          if [ "${{ steps.dep-report.outputs.upgraded-count }}" -gt "0" ]; then
+            echo "::notice::Found ${{ steps.dep-report.outputs.upgraded-count }} upgraded dependencies"
+          fi
+          
+          if [ "${{ steps.dep-report.outputs.added-count }}" -gt "5" ]; then
+            echo "::warning::Large number of new dependencies added (${{ steps.dep-report.outputs.added-count }})"
+          fi

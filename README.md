@@ -122,6 +122,132 @@ The HTML report provides a user-friendly visualization of this data, including:
 - Git
 - npm
 
+## GitHub Actions Integration
+
+This tool is designed to work seamlessly with GitHub Actions to automatically generate dependency reports for pull requests and releases.
+
+### Basic Setup
+
+Create `.github/workflows/dependency-report.yml` in your repository:
+
+```yaml
+name: Dependency Change Report
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dependency-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for version detection
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Generate dependency report
+        run: npx dependency-change-report auto --output-dir ./reports
+      
+      - name: Upload reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: ./reports/
+          retention-days: 30
+```
+
+### Advanced Setup with PR Comments
+
+For automatic PR comments with the dependency report:
+
+```yaml
+name: Dependency Change Report
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dependency-report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Generate dependency report
+        id: dep-report
+        run: npx dependency-change-report auto --output-dir ./reports
+      
+      - name: Upload reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-report-PR-${{ github.event.number }}
+          path: ./reports/
+          retention-days: 30
+      
+      - name: Comment PR with report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './reports/dependency-report-PR-${{ github.event.number }}.md';
+            if (fs.existsSync(path)) {
+              const report = fs.readFileSync(path, 'utf8');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: report
+              });
+            }
+```
+
+### Compare Specific Versions
+
+To compare specific commits or tags instead of auto-detection:
+
+```yaml
+      - name: Generate dependency report
+        run: npx dependency-change-report compare https://github.com/${{ github.repository }} ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --output-dir ./reports
+```
+
+### Available Outputs
+
+When running in GitHub Actions, the tool provides these outputs that can be used in subsequent steps:
+
+- `has-changes`: `true` if any dependencies changed
+- `added-count`: Number of added dependencies
+- `upgraded-count`: Number of upgraded dependencies  
+- `removed-count`: Number of removed dependencies
+- `report-dir`: Directory containing the generated reports
+
+### Generated Files
+
+In GitHub Actions, the tool automatically generates files with PR-specific names:
+
+- `dependency-report-PR-123.html` - Interactive HTML report
+- `dependency-report-PR-123.md` - Markdown report (perfect for PR comments)
+- `dependency-report-PR-123.txt` - Plain text report
+- `report.json` - Raw JSON data
+
+### Accessing Reports
+
+Reports are saved as GitHub Actions artifacts and can be:
+
+1. **Downloaded from the Actions tab** - Click on the workflow run and download the artifact
+2. **Viewed in PR comments** - If using the advanced setup with PR comments
+3. **Accessed programmatically** - Using the GitHub API to download artifacts
+
 ## License
 
 ISC
