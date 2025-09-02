@@ -42,9 +42,16 @@ const compare = command(
         const token = process.env.GITHUB_TOKEN;
         if (token) {
           console.log(`Original repo URL: ${repoUrl}`);
-          // Convert https://github.com/owner/repo to https://token:x-oauth-basic@github.com/owner/repo
-          repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
-          console.log('Modified repo URL to use GitHub token authentication');
+          try {
+            // Configure git to use the token for GitHub authentication
+            await executeCommand('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'git@github.com:'], process.cwd(), 10000);
+            await executeCommand('git', ['config', '--global', `url.https://${token}:x-oauth-basic@github.com/.insteadOf`, 'https://github.com/'], process.cwd(), 10000);
+            console.log('Configured Git to use GitHub token authentication');
+          } catch (error) {
+            console.log('Failed to configure Git authentication, falling back to URL modification');
+            // Fallback to URL modification
+            repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
+          }
           console.log('Using GitHub token for private repository access');
         } else {
           console.log('GitHub Actions detected but no GITHUB_TOKEN found');
@@ -207,9 +214,16 @@ const auto = command(
         const token = process.env.GITHUB_TOKEN;
         if (token) {
           console.log(`Original repo URL: ${repoUrl}`);
-          // Convert https://github.com/owner/repo to https://token:x-oauth-basic@github.com/owner/repo
-          repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
-          console.log('Modified repo URL to use GitHub token authentication');
+          try {
+            // Configure git to use the token for GitHub authentication
+            await executeCommand('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'git@github.com:'], process.cwd(), 10000);
+            await executeCommand('git', ['config', '--global', `url.https://${token}:x-oauth-basic@github.com/.insteadOf`, 'https://github.com/'], process.cwd(), 10000);
+            console.log('Configured Git to use GitHub token authentication');
+          } catch (error) {
+            console.log('Failed to configure Git authentication, falling back to URL modification');
+            // Fallback to URL modification
+            repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
+          }
           console.log('Using GitHub token for private repository access');
         } else {
           console.log('GitHub Actions detected but no GITHUB_TOKEN found');

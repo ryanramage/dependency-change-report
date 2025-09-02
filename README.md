@@ -139,9 +139,13 @@ on:
 jobs:
   dependency-report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0  # Need full history for version detection
       
       - uses: actions/setup-node@v4
@@ -150,6 +154,8 @@ jobs:
       
       - name: Generate dependency report
         run: npx dependency-change-report auto --output-dir ./reports
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload reports as artifacts
         uses: actions/upload-artifact@v4
@@ -175,9 +181,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
       
       - uses: actions/setup-node@v4
@@ -187,6 +195,8 @@ jobs:
       - name: Generate dependency report
         id: dep-report
         run: npx dependency-change-report auto --output-dir ./reports
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload reports as artifacts
         uses: actions/upload-artifact@v4
@@ -219,7 +229,37 @@ To compare specific commits or tags instead of auto-detection:
 ```yaml
       - name: Generate dependency report
         run: npx dependency-change-report compare https://github.com/${{ github.repository }} ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --output-dir ./reports
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+### Private Repository Support
+
+For private repositories, the tool automatically detects GitHub Actions environment and configures Git authentication using the provided `GITHUB_TOKEN`. Make sure to:
+
+1. **Include the token in your workflow step**:
+   ```yaml
+   env:
+     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
+
+2. **Set appropriate permissions** in your workflow:
+   ```yaml
+   permissions:
+     contents: read
+     actions: read
+     pull-requests: write  # Only needed for PR comments
+   ```
+
+3. **Use the token in checkout** for private repositories:
+   ```yaml
+   - uses: actions/checkout@v4
+     with:
+       token: ${{ secrets.GITHUB_TOKEN }}
+       fetch-depth: 0
+   ```
+
+The tool will automatically configure Git to use the token for authentication when accessing private repositories.
 
 ### Available Outputs
 
