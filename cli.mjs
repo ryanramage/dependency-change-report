@@ -14,6 +14,7 @@ const compare = command(
   'compare',
   flag('--ignore-dev', 'ignore dev dependencies'),
   flag('--working-dir [path]', 'the working dir for the report. If not provided, then temp dir is used'),
+  flag('--output-dir [path]', 'directory to save reports. If not provided, reports are saved in working dir'),
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
@@ -31,6 +32,15 @@ const compare = command(
       if (!workingDir) {
         const paths = envPaths('dependency-change-report');
         workingDir = paths.temp;
+      }
+      
+      // Detect if running in GitHub Actions
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      
+      // Set up output directory
+      let outputDir = compare.flags['output-dir'];
+      if (!outputDir) {
+        outputDir = workingDir; // Default to working directory
       }
       
       console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
@@ -56,52 +66,66 @@ const compare = command(
       console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
       console.log(`Encountered errors with ${errorCount} dependencies`);
       
-      // Generate additional report formats if requested
+      // Generate additional report formats
+      console.log('\nGenerating additional report formats...');
+      
+      const reportJsonPath = report.reportPath;
+      
+      // Generate GitHub Actions-friendly filenames if detected
+      let baseFilename = 'report';
+      if (isGitHubActions) {
+        const eventName = process.env.GITHUB_EVENT_NAME;
+        const prNumber = process.env.GITHUB_PR_NUMBER || process.env.GITHUB_REF_NAME;
+        const sha = process.env.GITHUB_SHA?.substring(0, 7);
+        
+        if (eventName === 'pull_request' && prNumber) {
+          baseFilename = `dependency-report-PR-${prNumber}`;
+        } else if (sha) {
+          baseFilename = `dependency-report-${sha}`;
+        }
+      }
+      
       if (compare.flags.html || compare.flags.markdown || compare.flags.text) {
-        console.log('\nGenerating additional report formats...');
-        
-        const reportJsonPath = report.reportPath;
-        const reportDir = dirname(reportJsonPath);
-        
         if (compare.flags.html) {
-          const htmlPath = join(reportDir, 'report.html');
+          const htmlPath = join(outputDir, `${baseFilename}.html`);
           await generateHtmlReport(reportJsonPath, htmlPath);
           console.log(`🌐 HTML: ${htmlPath}`);
         }
         
         if (compare.flags.markdown) {
-          const markdownPath = join(reportDir, 'report.md');
+          const markdownPath = join(outputDir, `${baseFilename}.md`);
           await generateMarkdownReport(reportJsonPath, markdownPath);
           console.log(`📝 Markdown: ${markdownPath}`);
         }
         
         if (compare.flags.text) {
-          const textPath = join(reportDir, 'report.txt');
+          const textPath = join(outputDir, `${baseFilename}.txt`);
           await generateTextReport(reportJsonPath, textPath);
           console.log(`📝 Text: ${textPath}`);
         }
       } else {
         // Generate HTML, Markdown, and text reports by default
-        console.log('\nGenerating additional report formats...');
+        const htmlPath = join(outputDir, `${baseFilename}.html`);
+        const markdownPath = join(outputDir, `${baseFilename}.md`);
+        const textPath = join(outputDir, `${baseFilename}.txt`);
         
-        const reportJsonPath = report.reportPath;
-        const reportDir = dirname(reportJsonPath);
-        
-        // Generate HTML report
-        const htmlPath = join(reportDir, 'report.html');
         await generateHtmlReport(reportJsonPath, htmlPath);
-        
-        // Generate Markdown report
-        const markdownPath = join(reportDir, 'report.md');
         await generateMarkdownReport(reportJsonPath, markdownPath);
-        
-        // Generate text report
-        const textPath = join(reportDir, 'report.txt');
         await generateTextReport(reportJsonPath, textPath);
         
         console.log(`🌐 HTML: ${htmlPath}`);
         console.log(`📝 Markdown: ${markdownPath}`);
         console.log(`📝 Text: ${textPath}`);
+      }
+      
+      // Output GitHub Actions commands if detected
+      if (isGitHubActions) {
+        const hasChanges = report.changes.added.length > 0 || report.changes.upgraded.length > 0 || report.changes.removed.length > 0;
+        console.log(`::set-output name=has-changes::${hasChanges}`);
+        console.log(`::set-output name=added-count::${report.changes.added.length}`);
+        console.log(`::set-output name=upgraded-count::${report.changes.upgraded.length}`);
+        console.log(`::set-output name=removed-count::${report.changes.removed.length}`);
+        console.log(`::set-output name=report-dir::${outputDir}`);
       }
       
       console.log('\nReport generated successfully!');
@@ -127,6 +151,7 @@ const auto = command(
   'auto',
   flag('--ignore-dev', 'ignore dev dependencies'),
   flag('--working-dir [path]', 'the working dir for the report. If not provided, then temp dir is used'),
+  flag('--output-dir [path]', 'directory to save reports. If not provided, reports are saved in working dir'),
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
@@ -160,6 +185,15 @@ const auto = command(
         workingDir = paths.temp;
       }
       
+      // Detect if running in GitHub Actions
+      const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      
+      // Set up output directory
+      let outputDir = auto.flags['output-dir'];
+      if (!outputDir) {
+        outputDir = workingDir; // Default to working directory
+      }
+      
       console.log(`Auto-detecting versions for ${repoUrl}...`);
       
       // Detect versions automatically
@@ -188,52 +222,66 @@ const auto = command(
       console.log(`Generated changelogs for ${changelogCount} upgraded dependencies`);
       console.log(`Encountered errors with ${errorCount} dependencies`);
       
-      // Generate additional report formats if requested
+      // Generate additional report formats
+      console.log('\nGenerating additional report formats...');
+      
+      const reportJsonPath = report.reportPath;
+      
+      // Generate GitHub Actions-friendly filenames if detected
+      let baseFilename = 'report';
+      if (isGitHubActions) {
+        const eventName = process.env.GITHUB_EVENT_NAME;
+        const prNumber = process.env.GITHUB_PR_NUMBER || process.env.GITHUB_REF_NAME;
+        const sha = process.env.GITHUB_SHA?.substring(0, 7);
+        
+        if (eventName === 'pull_request' && prNumber) {
+          baseFilename = `dependency-report-PR-${prNumber}`;
+        } else if (sha) {
+          baseFilename = `dependency-report-${sha}`;
+        }
+      }
+      
       if (auto.flags.html || auto.flags.markdown || auto.flags.text) {
-        console.log('\nGenerating additional report formats...');
-        
-        const reportJsonPath = report.reportPath;
-        const reportDir = dirname(reportJsonPath);
-        
         if (auto.flags.html) {
-          const htmlPath = join(reportDir, 'report.html');
+          const htmlPath = join(outputDir, `${baseFilename}.html`);
           await generateHtmlReport(reportJsonPath, htmlPath);
           console.log(`🌐 HTML: ${htmlPath}`);
         }
         
         if (auto.flags.markdown) {
-          const markdownPath = join(reportDir, 'report.md');
+          const markdownPath = join(outputDir, `${baseFilename}.md`);
           await generateMarkdownReport(reportJsonPath, markdownPath);
           console.log(`📝 Markdown: ${markdownPath}`);
         }
         
         if (auto.flags.text) {
-          const textPath = join(reportDir, 'report.txt');
+          const textPath = join(outputDir, `${baseFilename}.txt`);
           await generateTextReport(reportJsonPath, textPath);
           console.log(`📝 Text: ${textPath}`);
         }
       } else {
         // Generate HTML, Markdown, and text reports by default
-        console.log('\nGenerating additional report formats...');
+        const htmlPath = join(outputDir, `${baseFilename}.html`);
+        const markdownPath = join(outputDir, `${baseFilename}.md`);
+        const textPath = join(outputDir, `${baseFilename}.txt`);
         
-        const reportJsonPath = report.reportPath;
-        const reportDir = dirname(reportJsonPath);
-        
-        // Generate HTML report
-        const htmlPath = join(reportDir, 'report.html');
         await generateHtmlReport(reportJsonPath, htmlPath);
-        
-        // Generate Markdown report
-        const markdownPath = join(reportDir, 'report.md');
         await generateMarkdownReport(reportJsonPath, markdownPath);
-        
-        // Generate text report
-        const textPath = join(reportDir, 'report.txt');
         await generateTextReport(reportJsonPath, textPath);
         
         console.log(`🌐 HTML: ${htmlPath}`);
         console.log(`📝 Markdown: ${markdownPath}`);
         console.log(`📝 Text: ${textPath}`);
+      }
+      
+      // Output GitHub Actions commands if detected
+      if (isGitHubActions) {
+        const hasChanges = report.changes.added.length > 0 || report.changes.upgraded.length > 0 || report.changes.removed.length > 0;
+        console.log(`::set-output name=has-changes::${hasChanges}`);
+        console.log(`::set-output name=added-count::${report.changes.added.length}`);
+        console.log(`::set-output name=upgraded-count::${report.changes.upgraded.length}`);
+        console.log(`::set-output name=removed-count::${report.changes.removed.length}`);
+        console.log(`::set-output name=report-dir::${outputDir}`);
       }
       
       console.log('\nReport generated successfully!');
