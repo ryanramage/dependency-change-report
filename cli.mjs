@@ -37,6 +37,16 @@ const compare = command(
       // Detect if running in GitHub Actions
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
       
+      // Add GitHub token authentication for private repositories
+      if (isGitHubActions && repoUrl.includes('github.com')) {
+        const token = process.env.GITHUB_TOKEN;
+        if (token) {
+          // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
+          repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
+          console.log('Using GitHub token for private repository access');
+        }
+      }
+      
       // Set up output directory
       let outputDir = compare.flags['output-dir'];
       if (!outputDir) {
@@ -187,6 +197,16 @@ const auto = command(
       
       // Detect if running in GitHub Actions
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
+      
+      // Add GitHub token authentication for private repositories
+      if (isGitHubActions && repoUrl.includes('github.com')) {
+        const token = process.env.GITHUB_TOKEN;
+        if (token) {
+          // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
+          repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
+          console.log('Using GitHub token for private repository access');
+        }
+      }
       
       // Set up output directory
       let outputDir = auto.flags['output-dir'];
