@@ -37,25 +37,10 @@ const compare = command(
       // Detect if running in GitHub Actions
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
       
-      // Add GitHub token authentication for private repositories
-      if (isGitHubActions && repoUrl.includes('github.com')) {
-        const token = process.env.GITHUB_TOKEN;
-        if (token) {
-          console.log(`Original repo URL: ${repoUrl}`);
-          try {
-            // Configure git to use the token for GitHub authentication
-            await executeCommand('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'git@github.com:'], process.cwd(), 10000);
-            await executeCommand('git', ['config', '--global', `url.https://${token}:x-oauth-basic@github.com/.insteadOf`, 'https://github.com/'], process.cwd(), 10000);
-            console.log('Configured Git to use GitHub token authentication');
-          } catch (error) {
-            console.log('Failed to configure Git authentication, falling back to URL modification');
-            // Fallback to URL modification
-            repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
-          }
-          console.log('Using GitHub token for private repository access');
-        } else {
-          console.log('GitHub Actions detected but no GITHUB_TOKEN found');
-        }
+      // Note: No need for GitHub token authentication when using worktrees
+      // since we use the already-authenticated repository
+      if (isGitHubActions) {
+        console.log('GitHub Actions detected - using authenticated repository');
       }
       
       // Set up output directory
@@ -209,25 +194,10 @@ const auto = command(
       // Detect if running in GitHub Actions
       const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
       
-      // Add GitHub token authentication for private repositories
-      if (isGitHubActions && repoUrl.includes('github.com')) {
-        const token = process.env.GITHUB_TOKEN;
-        if (token) {
-          console.log(`Original repo URL: ${repoUrl}`);
-          try {
-            // Configure git to use the token for GitHub authentication
-            await executeCommand('git', ['config', '--global', 'url.https://github.com/.insteadOf', 'git@github.com:'], process.cwd(), 10000);
-            await executeCommand('git', ['config', '--global', `url.https://${token}:x-oauth-basic@github.com/.insteadOf`, 'https://github.com/'], process.cwd(), 10000);
-            console.log('Configured Git to use GitHub token authentication');
-          } catch (error) {
-            console.log('Failed to configure Git authentication, falling back to URL modification');
-            // Fallback to URL modification
-            repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
-          }
-          console.log('Using GitHub token for private repository access');
-        } else {
-          console.log('GitHub Actions detected but no GITHUB_TOKEN found');
-        }
+      // Note: No need for GitHub token authentication when using worktrees
+      // since we use the already-authenticated repository
+      if (isGitHubActions) {
+        console.log('GitHub Actions detected - using authenticated repository');
       }
       
       // Set up output directory
