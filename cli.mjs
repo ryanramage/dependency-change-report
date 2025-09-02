@@ -42,8 +42,8 @@ const compare = command(
         const token = process.env.GITHUB_TOKEN;
         if (token) {
           console.log(`Original repo URL: ${repoUrl}`);
-          // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
-          repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
+          // Convert https://github.com/owner/repo to https://token:x-oauth-basic@github.com/owner/repo
+          repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
           console.log('Modified repo URL to use GitHub token authentication');
           console.log('Using GitHub token for private repository access');
         } else {
@@ -207,8 +207,8 @@ const auto = command(
         const token = process.env.GITHUB_TOKEN;
         if (token) {
           console.log(`Original repo URL: ${repoUrl}`);
-          // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
-          repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
+          // Convert https://github.com/owner/repo to https://token:x-oauth-basic@github.com/owner/repo
+          repoUrl = repoUrl.replace('https://github.com/', `https://${token}:x-oauth-basic@github.com/`);
           console.log('Modified repo URL to use GitHub token authentication');
           console.log('Using GitHub token for private repository access');
         } else {
