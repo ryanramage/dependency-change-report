@@ -44,7 +44,7 @@ const compare = command(
           console.log(`Original repo URL: ${repoUrl}`);
           // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
           repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
-          console.log(`Modified repo URL: ${repoUrl.replace(token, '[TOKEN]')}`);
+          console.log('Modified repo URL to use GitHub token authentication');
           console.log('Using GitHub token for private repository access');
         } else {
           console.log('GitHub Actions detected but no GITHUB_TOKEN found');
@@ -209,7 +209,7 @@ const auto = command(
           console.log(`Original repo URL: ${repoUrl}`);
           // Convert https://github.com/owner/repo to https://token@github.com/owner/repo
           repoUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
-          console.log(`Modified repo URL: ${repoUrl.replace(token, '[TOKEN]')}`);
+          console.log('Modified repo URL to use GitHub token authentication');
           console.log('Using GitHub token for private repository access');
         } else {
           console.log('GitHub Actions detected but no GITHUB_TOKEN found');
