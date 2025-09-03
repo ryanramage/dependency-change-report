@@ -90,8 +90,17 @@ const compare = command(
       let baseFilename = 'report';
       if (isGitHubActions) {
         const eventName = process.env.GITHUB_EVENT_NAME;
-        const prNumber = process.env.GITHUB_PR_NUMBER || process.env.GITHUB_REF_NAME;
+        let prNumber = process.env.GITHUB_PR_NUMBER;
         const sha = process.env.GITHUB_SHA?.substring(0, 7);
+        
+        // Extract PR number from GITHUB_REF_NAME if not in GITHUB_PR_NUMBER
+        if (!prNumber && process.env.GITHUB_REF_NAME) {
+          const refName = process.env.GITHUB_REF_NAME;
+          const prMatch = refName.match(/^(\d+)\/merge$/);
+          if (prMatch) {
+            prNumber = prMatch[1];
+          }
+        }
         
         if (eventName === 'pull_request' && prNumber) {
           baseFilename = `dependency-report-PR-${prNumber}`;
@@ -260,8 +269,17 @@ const auto = command(
       let baseFilename = 'report';
       if (isGitHubActions) {
         const eventName = process.env.GITHUB_EVENT_NAME;
-        const prNumber = process.env.GITHUB_PR_NUMBER || process.env.GITHUB_REF_NAME;
+        let prNumber = process.env.GITHUB_PR_NUMBER;
         const sha = process.env.GITHUB_SHA?.substring(0, 7);
+        
+        // Extract PR number from GITHUB_REF_NAME if not in GITHUB_PR_NUMBER
+        if (!prNumber && process.env.GITHUB_REF_NAME) {
+          const refName = process.env.GITHUB_REF_NAME;
+          const prMatch = refName.match(/^(\d+)\/merge$/);
+          if (prMatch) {
+            prNumber = prMatch[1];
+          }
+        }
         
         if (eventName === 'pull_request' && prNumber) {
           baseFilename = `dependency-report-PR-${prNumber}`;
