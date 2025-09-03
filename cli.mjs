@@ -45,7 +45,7 @@ const compare = command(
       }
       
       // Set up output directory
-      let outputDir = compare.flags['output-dir'];
+      let outputDir = compare.flags.outputDir;
       if (!outputDir) {
         outputDir = workingDir; // Default to working directory
       }
@@ -219,7 +219,7 @@ const auto = command(
       }
       
       // Set up output directory
-      let outputDir = auto.flags['output-dir'];
+      let outputDir = auto.flags.outputDir;
       if (!outputDir) {
         outputDir = workingDir; // Default to working directory
       }
