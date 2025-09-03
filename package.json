@@ -1,6 +1,6 @@
 {
   "name": "dependency-change-report",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "type": "module",
   "description": "Generate dependency change reports between git references",
   "main": "lib/index.mjs",
