@@ -9,6 +9,7 @@ import { dirname, join, basename } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
 import { executeCommand } from './lib/utils/command-executor.mjs';
+import { mkdir } from 'fs/promises';
 
 const compare = command(
   'compare',
@@ -47,6 +48,14 @@ const compare = command(
       let outputDir = compare.flags['output-dir'];
       if (!outputDir) {
         outputDir = workingDir; // Default to working directory
+      }
+      
+      // Ensure output directory exists
+      try {
+        await mkdir(outputDir, { recursive: true });
+      } catch (error) {
+        console.error(`Failed to create output directory ${outputDir}: ${error.message}`);
+        throw error;
       }
       
       console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
@@ -204,6 +213,14 @@ const auto = command(
       let outputDir = auto.flags['output-dir'];
       if (!outputDir) {
         outputDir = workingDir; // Default to working directory
+      }
+      
+      // Ensure output directory exists
+      try {
+        await mkdir(outputDir, { recursive: true });
+      } catch (error) {
+        console.error(`Failed to create output directory ${outputDir}: ${error.message}`);
+        throw error;
       }
       
       console.log(`Auto-detecting versions for ${repoUrl}...`);
