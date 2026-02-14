@@ -70,7 +70,7 @@ Compare specific versions:
 dependency-change-report compare <older-version> <newer-version>
 
 # Or specify a repository URL explicitly
-dependency-change-report compare [github-repo] <older-version> <newer-version>
+dependency-change-report compare --repo <github-repo> <older-version> <newer-version>
 ```
 
 The tool automatically generates three report formats:
@@ -89,7 +89,7 @@ dependency-change-report auto
 dependency-change-report compare v1.0.0 v2.0.0
 
 # Compare specific versions with explicit repo URL
-dependency-change-report compare https://github.com/user/repo v1.0.0 v2.0.0
+dependency-change-report compare --repo https://github.com/user/repo v1.0.0 v2.0.0
 
 # Generate only HTML and Markdown reports
 dependency-change-report auto --html --markdown

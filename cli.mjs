@@ -19,12 +19,12 @@ const compare = command(
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
-  arg('[repo]', 'repo url (optional if in git directory)'),
+  flag('--repo [url]', 'repo url (optional if in git directory)'),
   arg('<older>', 'the older tag, commit, or branch'),
   arg('<newer>', 'the newer tag, commit, or branch'),
   async () => {
     try {
-      let repoUrl = compare.args.repo;
+      let repoUrl = compare.flags.repo;
       
       // If no repo provided, try to get it from git remote
       if (!repoUrl) {
