@@ -15,10 +15,14 @@ A tool to analyze dependency changes between different versions of a Node.js pro
 
 ### Using npx (Recommended)
 
-No installation required! Run directly with npx:
+No installation required! Run directly with npx from within your git repository:
 
 ```bash
-npx dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
+# Auto-detect versions
+npx dependency-change-report auto
+
+# Or compare specific versions
+npx dependency-change-report compare v1.0.0 v2.0.0
 ```
 
 ### Global Installation (Alternative)
@@ -32,39 +36,69 @@ npm install -g dependency-change-report
 Then run with:
 
 ```bash
-dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
+# Auto-detect versions
+dependency-change-report auto
+
+# Or compare specific versions
+dependency-change-report compare v1.0.0 v2.0.0
 ```
 
 ## Usage
 
 ### Command Line Interface
 
-Generate a dependency report:
+The tool provides two main commands:
+
+#### Auto Command (Recommended)
+
+Automatically detects versions and generates reports:
 
 ```bash
-# Using npx (recommended)
-npx dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
+# From within a git repository
+dependency-change-report auto
 
-# If installed globally
-dependency-change-report <github-repo> <older-version> <newer-version> [working-dir]
+# Or specify a repository URL
+dependency-change-report auto <github-repo>
+```
+
+#### Compare Command
+
+Compare specific versions:
+
+```bash
+# From within a git repository (repo URL auto-detected)
+dependency-change-report compare <older-version> <newer-version>
+
+# Or specify a repository URL explicitly
+dependency-change-report compare [github-repo] <older-version> <newer-version>
 ```
 
 The tool automatically generates three report formats:
 - `report.json` - Raw data in JSON format
 - `report.html` - Web-friendly HTML report
-- `report.txt` - Slack-friendly text report
+- `report.md` - Markdown report (perfect for PR comments)
+- `report.txt` - Plain text report
 
 ### Examples
 
 ```bash
-# Generate a report comparing v1.0.0 and v2.0.0 of a repository
-npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0
+# Auto-detect versions and generate all reports (from within a git repo)
+dependency-change-report auto
 
-# Generate a report with a specific working directory
-npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0 /tmp/analysis
+# Compare specific versions (from within a git repo)
+dependency-change-report compare v1.0.0 v2.0.0
 
-# Filter nested dependencies by namespace (e.g., @holepunch)
-npx dependency-change-report git@github.com:user/repo.git v1.0.0 v2.0.0 . @holepunch
+# Compare specific versions with explicit repo URL
+dependency-change-report compare https://github.com/user/repo v1.0.0 v2.0.0
+
+# Generate only HTML and Markdown reports
+dependency-change-report auto --html --markdown
+
+# Ignore dev dependencies
+dependency-change-report compare v1.0.0 v2.0.0 --ignore-dev
+
+# Save reports to a specific directory
+dependency-change-report auto --output-dir ./reports
 ```
 
 ### Programmatic Usage

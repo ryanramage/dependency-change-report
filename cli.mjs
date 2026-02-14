@@ -19,12 +19,31 @@ const compare = command(
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
-  arg('<repo>', 'repo url'),
+  arg('[repo]', 'repo url (optional if in git directory)'),
   arg('<older>', 'the older tag, commit, or branch'),
-  arg('[newer]', 'the newer tag, commit, or branch'),
+  arg('<newer>', 'the newer tag, commit, or branch'),
   async () => {
     try {
       let repoUrl = compare.args.repo;
+      
+      // If no repo provided, try to get it from git remote
+      if (!repoUrl) {
+        try {
+          const result = await executeCommand('git', ['remote', 'get-url', 'origin'], process.cwd(), 10000, 'detecting git remote');
+          if (!result) {
+            throw new Error('Git command returned no output');
+          }
+          repoUrl = result.trim();
+          if (!repoUrl) {
+            throw new Error('Git remote URL is empty');
+          }
+          console.log(`Detected git remote: ${repoUrl}`);
+        } catch (error) {
+          console.error(`Failed to detect git remote: ${error.message}`);
+          throw new Error('No repo URL provided and could not detect git remote. Either provide a repo URL or run from within a git repository.');
+        }
+      }
+      
       const olderVersion = compare.args.older;
       const newerVersion = compare.args.newer;
       
