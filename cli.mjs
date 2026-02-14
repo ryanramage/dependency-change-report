@@ -340,9 +340,76 @@ const auto = command(
     }
   }
 )
+// Default action when no subcommand is provided
+const defaultAction = async () => {
+  console.log('🔍 Dependency Change Report\n');
+  
+  // Try to detect if we're in a git repository
+  let repoUrl = null;
+  let isInGitRepo = false;
+  
+  try {
+    const result = await executeCommand('git', ['remote', 'get-url', 'origin'], process.cwd(), 10000, 'detecting git remote');
+    repoUrl = result?.trim();
+    isInGitRepo = !!repoUrl;
+  } catch (error) {
+    // Not in a git repo or no remote
+  }
+  
+  if (isInGitRepo) {
+    console.log(`✅ Detected git repository: ${repoUrl}\n`);
+    
+    // Try to detect versions
+    try {
+      const { newer, older } = await detectVersions('.');
+      console.log(`✅ Detected versions:`);
+      console.log(`   Older: ${older}`);
+      console.log(`   Newer: ${newer}\n`);
+      
+      console.log('📋 Ready to analyze! Run one of these commands:\n');
+      console.log('   # Auto-detect versions and generate all reports:');
+      console.log('   dependency-change-report auto\n');
+      console.log('   # Or specify versions explicitly:');
+      console.log(`   dependency-change-report compare ${older} ${newer}\n`);
+      console.log('   # Generate specific report formats:');
+      console.log(`   dependency-change-report auto --html --markdown\n`);
+      
+    } catch (error) {
+      console.log(`⚠️  Could not auto-detect versions: ${error.message}\n`);
+      console.log('📋 Run with explicit versions:\n');
+      console.log('   dependency-change-report compare <older-version> <newer-version>\n');
+      console.log('   Example:');
+      console.log('   dependency-change-report compare v1.0.0 v2.0.0\n');
+    }
+    
+  } else {
+    console.log('⚠️  Not in a git repository or no remote configured\n');
+    console.log('📋 Run from a git repository:\n');
+    console.log('   cd /path/to/your/repo');
+    console.log('   dependency-change-report auto\n');
+    console.log('📋 Or specify a repository URL:\n');
+    console.log('   dependency-change-report compare https://github.com/user/repo v1.0.0 v2.0.0\n');
+  }
+  
+  console.log('💡 Additional options:');
+  console.log('   --ignore-dev          Ignore dev dependencies');
+  console.log('   --output-dir <path>   Save reports to specific directory');
+  console.log('   --html                Generate HTML report only');
+  console.log('   --markdown            Generate Markdown report only');
+  console.log('   --text                Generate text report only\n');
+  
+  console.log('📚 For more help:');
+  console.log('   dependency-change-report --help');
+};
+
 const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, auto )
 const init = async () => {
-  cmd.parse()
+  // If no arguments provided (just the command name), run default action
+  if (process.argv.length === 2) {
+    await defaultAction();
+  } else {
+    cmd.parse();
+  }
 }
 
 // Run the main function
