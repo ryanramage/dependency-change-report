@@ -163,27 +163,52 @@ You can exclude specific dependencies from your reports by creating a `.dcrignor
 #### Format
 
 The `.dcrignore` file uses a simple format:
-- One package name per line
+- One package name or pattern per line
 - Comments start with `#`
 - Empty lines are ignored
 - Whitespace is automatically trimmed
+- Supports glob patterns using `*`, `?`, `[...]` syntax
 
 #### Example
 
 ```
-# Ignore test utilities
+# Ignore test utilities (exact matches)
 jest
-@jest/core
-@jest/types
+mocha
+
+# Ignore all @jest packages (glob pattern)
+@jest/*
+
+# Ignore all @types packages (glob pattern)
+@types/*
 
 # Ignore build tools
 webpack
 rollup
 esbuild
 
-# Internal packages
-@mycompany/internal-tool
+# Internal packages with wildcard
+@mycompany/*
+
+# Complex patterns
+babel-plugin-*
+*-loader
 ```
+
+#### Glob Pattern Support
+
+The `.dcrignore` file supports standard glob patterns:
+
+- `*` - Matches any number of characters (except `/`)
+- `?` - Matches a single character
+- `[abc]` - Matches any character in the set
+- `[a-z]` - Matches any character in the range
+
+Examples:
+- `@types/*` - Matches all packages in the @types namespace
+- `babel-*` - Matches all packages starting with "babel-"
+- `*-loader` - Matches all packages ending with "-loader"
+- `@mycompany/*` - Matches all packages in the @mycompany namespace
 
 #### Behavior
 
