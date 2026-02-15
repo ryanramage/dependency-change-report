@@ -150,6 +150,62 @@ The HTML report provides a user-friendly visualization of this data, including:
 5. Generates a JSON report with all the collected information
 6. Optionally converts the JSON report to an HTML report
 
+## Ignoring Dependencies
+
+### Using .dcrignore
+
+You can exclude specific dependencies from your reports by creating a `.dcrignore` file in your repository root. This is useful for:
+
+- Excluding internal or proprietary packages
+- Filtering out dependencies that don't need tracking
+- Reducing report noise by ignoring specific packages
+
+#### Format
+
+The `.dcrignore` file uses a simple format:
+- One package name per line
+- Comments start with `#`
+- Empty lines are ignored
+- Whitespace is automatically trimmed
+
+#### Example
+
+```
+# Ignore test utilities
+jest
+@jest/core
+@jest/types
+
+# Ignore build tools
+webpack
+rollup
+esbuild
+
+# Internal packages
+@mycompany/internal-tool
+```
+
+#### Behavior
+
+When a package is listed in `.dcrignore`:
+- It will be excluded from the report along with all its nested dependencies
+- Works the same way as `--ignore-dev` flag
+- Applies to both direct and transitive dependencies
+- The ignored packages are listed in the JSON report under `ignoredFromDcrIgnore`
+
+#### Using with --ignore-dev
+
+The `.dcrignore` file works in combination with the `--ignore-dev` flag:
+
+```bash
+# Ignore both dev dependencies AND packages in .dcrignore
+dependency-change-report auto --ignore-dev
+```
+
+Both lists are merged together, so packages will be excluded if they appear in either:
+- The `devDependencies` section of `package.json`
+- The `.dcrignore` file
+
 ## Requirements
 
 - Node.js 14 or higher
