@@ -5,7 +5,8 @@
   "description": "Generate dependency change reports between git references",
   "main": "lib/index.mjs",
   "bin": {
-    "dependency-change-report": "cli.mjs"
+    "dependency-change-report": "cli.mjs",
+    "dependency-change-compare": "compare-cli.mjs"
   },
   "scripts": {
     "test": "node --test tests/**/*.test.mjs",
