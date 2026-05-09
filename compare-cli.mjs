@@ -93,10 +93,19 @@ const compare = command(
       const jsonPath = join(outputDir, `${baseFilename}.json`);
       await writeFile(jsonPath, JSON.stringify(result, null, 2));
 
+      // Print installed data warning
+      if (!result.hasInstalledData) {
+        console.log('\nNote: Reports lack "installed" data. Noise reduction disabled.');
+        console.log('Re-run dependency-change-report on each project to populate installed package snapshots.');
+      }
+
       // Print summary
       console.log('\nComparison Summary:');
-      console.log(`  Total discrepancies: ${result.summary.totalDiscrepancies}`);
-      console.log(`  Matching changes:    ${result.summary.totalMatching}`);
+      console.log(`  Total discrepancies:       ${result.summary.totalDiscrepancies}`);
+      console.log(`  Matching changes:          ${result.summary.totalMatching}`);
+      if (result.summary.totalFrameworkSpecific > 0) {
+        console.log(`  Framework-specific:        ${result.summary.totalFrameworkSpecific} (unique to one project)`);
+      }
       if (result.summary.addedOnlyInProject1 > 0) {
         console.log(`  Added only in project 1:   ${result.summary.addedOnlyInProject1}`);
       }

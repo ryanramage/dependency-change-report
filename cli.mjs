@@ -129,6 +129,13 @@ const compare = command(
         } else if (sha) {
           baseFilename = `dependency-report-${sha}`;
         }
+      } else {
+        // For local/CLI usage, use version-based filename
+        // Sanitize versions to be filesystem-safe (remove invalid characters)
+        const sanitizeVersion = (v) => v.replace(/[\/\\:*?"<>|]/g, '-');
+        const olderSafe = sanitizeVersion(report.olderVersion);
+        const newerSafe = sanitizeVersion(report.newerVersion);
+        baseFilename = `${olderSafe}→${newerSafe}`;
       }
 
       if (compare.flags.html || compare.flags.markdown || compare.flags.text) {
@@ -311,6 +318,13 @@ const auto = command(
         } else if (sha) {
           baseFilename = `dependency-report-${sha}`;
         }
+      } else {
+        // For local/CLI usage, use version-based filename
+        // Sanitize versions to be filesystem-safe (remove invalid characters)
+        const sanitizeVersion = (v) => v.replace(/[\/\\:*?"<>|]/g, '-');
+        const olderSafe = sanitizeVersion(report.olderVersion);
+        const newerSafe = sanitizeVersion(report.newerVersion);
+        baseFilename = `${olderSafe}→${newerSafe}`;
       }
 
       if (auto.flags.html || auto.flags.markdown || auto.flags.text) {
