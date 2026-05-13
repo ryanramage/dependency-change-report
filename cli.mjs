@@ -16,7 +16,7 @@ const compare = command(
   flag('--ignore-dev', 'ignore dev dependencies'),
   flag('--debug-tree', 'output debug information about dependency tree filtering'),
   flag('--cleanup-worktrees', 'clean up stale git worktrees before starting'),
-  flag('--full-inventory', 'generate complete dependency inventory table'),
+  flag('--skip-full-inventory', 'skip generating complete dependency inventory table (enabled by default)'),
   flag('--working-dir [path]', 'the working dir for the report. If not provided, then temp dir is used'),
   flag('--output-dir [path]', 'directory to save reports. If not provided, reports are saved in working dir'),
   flag('--html', 'generate a html report'),
@@ -82,7 +82,7 @@ const compare = command(
 
       console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
 
-      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, compare.flags.ignoreDev, compare.flags.debugTree, compare.flags.cleanupWorktrees, compare.flags.fullInventory);
+      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, compare.flags.ignoreDev, compare.flags.debugTree, compare.flags.cleanupWorktrees, !compare.flags.skipFullInventory);
 
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
@@ -205,7 +205,7 @@ const auto = command(
   flag('--ignore-dev', 'ignore dev dependencies'),
   flag('--debug-tree', 'output debug information about dependency tree filtering'),
   flag('--cleanup-worktrees', 'clean up stale git worktrees before starting'),
-  flag('--full-inventory', 'generate complete dependency inventory table'),
+  flag('--skip-full-inventory', 'skip generating complete dependency inventory table (enabled by default)'),
   flag('--working-dir [path]', 'the working dir for the report. If not provided, then temp dir is used'),
   flag('--output-dir [path]', 'directory to save reports. If not provided, reports are saved in working dir'),
   flag('--html', 'generate a html report'),
@@ -271,7 +271,7 @@ const auto = command(
 
       console.log(`Analyzing dependency changes between ${older} and ${newer}`);
 
-      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, auto.flags.ignoreDev, auto.flags.debugTree, auto.flags.cleanupWorktrees, auto.flags.fullInventory);
+      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, auto.flags.ignoreDev, auto.flags.debugTree, auto.flags.cleanupWorktrees, !auto.flags.skipFullInventory);
 
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
@@ -431,14 +431,14 @@ const defaultAction = async () => {
   }
 
   console.log('💡 Additional options:');
-  console.log('   --ignore-dev          Ignore dev dependencies');
-  console.log('   --debug-tree          Show debug info about dependency filtering');
-  console.log('   --cleanup-worktrees   Clean up stale git worktrees before starting');
-  console.log('   --full-inventory      Generate complete dependency inventory table');
-  console.log('   --output-dir <path>   Save reports to specific directory');
-  console.log('   --html                Generate HTML report only');
-  console.log('   --markdown            Generate Markdown report only');
-  console.log('   --text                Generate text report only\n');
+  console.log('   --ignore-dev            Ignore dev dependencies');
+  console.log('   --debug-tree            Show debug info about dependency filtering');
+  console.log('   --cleanup-worktrees     Clean up stale git worktrees before starting');
+  console.log('   --skip-full-inventory   Skip full dependency inventory (enabled by default)');
+  console.log('   --output-dir <path>     Save reports to specific directory');
+  console.log('   --html                  Generate HTML report only');
+  console.log('   --markdown              Generate Markdown report only');
+  console.log('   --text                  Generate text report only\n');
 
   console.log('📚 For more help:');
   console.log('   dependency-change-report --help');
