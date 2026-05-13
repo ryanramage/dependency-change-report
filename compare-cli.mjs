@@ -17,31 +17,36 @@ const compare = command(
   flag('--html', 'generate an HTML report'),
   flag('--markdown', 'generate a Markdown report'),
   flag('--text', 'generate a plain text report'),
-  arg('<project1>', 'path to first project report.json'),
-  arg('<project2>', 'path to second project report.json'),
+  arg('<project1>', 'path or URL to first project report.json'),
+  arg('<project2>', 'path or URL to second project report.json'),
   async () => {
     try {
-      const project1Path = resolve(compare.args.project1);
-      const project2Path = resolve(compare.args.project2);
+      const isUrl = (str) => str.startsWith('https://') || str.startsWith('http://');
+      const project1Path = isUrl(compare.args.project1) ? compare.args.project1 : resolve(compare.args.project1);
+      const project2Path = isUrl(compare.args.project2) ? compare.args.project2 : resolve(compare.args.project2);
 
-      // Validate input files exist
-      try {
-        await access(project1Path);
-      } catch {
-        console.error(`Error: File not found: ${project1Path}`);
-        process.exit(1);
+      // Validate local input files exist
+      if (!isUrl(project1Path)) {
+        try {
+          await access(project1Path);
+        } catch {
+          console.error(`Error: File not found: ${project1Path}`);
+          process.exit(1);
+        }
       }
-      try {
-        await access(project2Path);
-      } catch {
-        console.error(`Error: File not found: ${project2Path}`);
-        process.exit(1);
+      if (!isUrl(project2Path)) {
+        try {
+          await access(project2Path);
+        } catch {
+          console.error(`Error: File not found: ${project2Path}`);
+          process.exit(1);
+        }
       }
 
       // Determine output directory
       let outputDir = compare.flags.outputDir;
       if (!outputDir) {
-        outputDir = dirname(project1Path);
+        outputDir = isUrl(project1Path) ? process.cwd() : dirname(project1Path);
       }
       outputDir = resolve(outputDir);
 
