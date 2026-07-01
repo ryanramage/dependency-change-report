@@ -261,9 +261,70 @@ Copy-paste workflows live in [`examples/`](./examples). The two-frontend pattern
      acme/electron/tag/v4.3.0/report.json
    ```
 
-2. **Tokens (org secrets).** The default `${{ github.token }}` is repo-scoped and generally **cannot** read packages published from other repos or write to the reports repo. Provision an org PAT or GitHub App token:
+2. **Tokens (org secrets).** The default `${{ github.token }}` is repo-scoped and generally **cannot** read packages published from other repos or write to the reports repo. You need:
    - `DCR_PACKAGES_TOKEN` — `packages:read` (to install private `@company/*` deps).
    - `DCR_REPORTS_TOKEN` — `contents:write` on the central reports repo.
+
+   See [Token setup & org settings](#token-setup--org-settings) for how to provision these with least privilege.
+
+### Token setup & org settings
+
+The two secrets have very different blast radius — handle them separately rather than minting one broad token for both.
+
+| Secret | Need | Can the built-in `GITHUB_TOKEN` do it? |
+|---|---|---|
+| `DCR_PACKAGES_TOKEN` | Read private `@company/*` from GitHub Packages | **Sometimes** — if packages + consuming repos share an org |
+| `DCR_REPORTS_TOKEN` | Write `report.json` to *another* repo | **No** — the job token is scoped to its own repo |
+
+#### Packages: prefer no standing token
+
+If the packages and the frontend repos live in the same org, avoid a PAT entirely:
+
+1. Org → **Packages** → the package → **Package settings → Manage Actions access** → add each consuming repo with **Read**.
+2. In the workflow request the scope and pass the built-in token:
+   ```yaml
+   permissions:
+     contents: read
+     packages: read
+   # github-packages-token: ${{ secrets.GITHUB_TOKEN }}   # the action default
+   ```
+
+This token is minted per-run, expires with the job, and is scoped to that repo — nothing to leak or rotate. Use a PAT/App token only if the packages live in another org.
+
+#### Reports write: GitHub App (recommended) or fine-grained PAT
+
+The cross-repo write always needs a real token. In order of preference:
+
+**GitHub App** — not tied to a person, mints short-lived (~1h) tokens, precisely scoped, auditable:
+
+1. Org → Settings → **Developer settings → GitHub Apps → New GitHub App**.
+2. Repository permissions: `Contents: Read and write` (reports repo), `Packages: Read` (only if also using it for packages). Disable the webhook.
+3. Generate a **private key**; **install** the app on **Only select repositories** → the reports repo.
+4. Store `APP_ID` and the private key as org secrets, then mint a token per run:
+   ```yaml
+   - uses: actions/create-github-app-token@v2
+     id: app-token
+     with:
+       app-id: ${{ secrets.DCR_APP_ID }}
+       private-key: ${{ secrets.DCR_APP_PRIVATE_KEY }}
+       owner: acme
+       repositories: dcr-reports
+   # reports-token: ${{ steps.app-token.outputs.token }}
+   ```
+
+**Fine-grained PAT** — simpler, still scoped, but tied to a user account and manually rotated:
+
+1. Org → Settings → **Personal access tokens → Settings** → enable *Allow access via fine-grained personal access tokens* (optionally require admin approval). Without this, the token can't touch org resources.
+2. Create the token with Resource owner = the org, **Only select repositories** (the reports repo), permissions `Contents: Read and write`, `Packages: Read`. Store as an org secret.
+
+Avoid **classic PATs** — the `repo` scope grants write to *every* repo the user can access, not just the reports repo.
+
+#### Org settings that matter regardless
+
+- **Scope the org secret to selected repos.** Org → Settings → **Secrets and variables → Actions → New organization secret → Repository access: Selected repositories** (the two frontend repos + the coordinating repo). The single most important control — a secret exposed to *all* repos can be used by any workflow in the org.
+- **Least privilege.** Grant `contents:write` on the *one* reports repo, not org-wide; install the App on selected repos only.
+- **Rotation & audit.** App tokens auto-expire; PATs need a rotation reminder. App activity shows as the app in the audit log; PAT activity shows as the user.
+- **Fork PRs.** Secrets are not passed to workflows triggered by fork `pull_request` events (default) — relevant only if a frontend repo becomes public.
 
 ### Per-repo report workflow
 
