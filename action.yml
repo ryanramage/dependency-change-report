@@ -1,0 +1,318 @@
+name: 'Dependency Change Report'
+description: >-
+  Generate a dependency change report for a (private) repo against its last
+  release line, configure private npm auth, and publish report.json to a durable
+  central reports repo for cross-project comparison.
+author: 'ryanramage'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  node-version:
+    description: 'Node.js version for the runner.'
+    required: false
+    default: '18'
+  cli-version:
+    description: >-
+      Version (npm dist-tag or semver range) of dependency-change-report to run.
+      Leave empty to run the CLI bundled with this action (kept in lockstep with
+      the action ref).
+    required: false
+    default: ''
+
+  # --- Baseline resolution (hybrid: input > .dcr.json > auto-detect) ---
+  base-ref:
+    description: >-
+      Explicit "older" baseline ref. If set, overrides .dcr.json and
+      auto-detection. Leave empty to let the CLI resolve it (.dcr.json baseline,
+      else latest stable tag).
+    required: false
+    default: ''
+  config-file:
+    description: 'Path to the .dcr.json config file holding a pinned baseline.'
+    required: false
+    default: '.dcr.json'
+
+  # --- Private npm auth (GitHub Packages) ---
+  github-packages-scopes:
+    description: >-
+      Comma-separated npm scopes hosted on GitHub Packages, e.g.
+      "@company,@company-internal". Each is mapped to npm.pkg.github.com.
+    required: false
+    default: ''
+  github-packages-token:
+    description: >-
+      Token used to read GitHub Packages. Defaults to the job token, but for
+      packages published from other repos provide an org PAT / App token with
+      packages:read.
+    required: false
+    default: ${{ github.token }}
+
+  # --- Report generation ---
+  ignore-dev:
+    description: 'Pass --ignore-dev to exclude devDependencies.'
+    required: false
+    default: 'true'
+  output-dir:
+    description: 'Directory for generated reports.'
+    required: false
+    default: './dcr-reports'
+
+  # --- Publishing ---
+  publish-target:
+    description: 'Where to publish report.json: central-repo | artifact | none.'
+    required: false
+    default: 'central-repo'
+  reports-repo:
+    description: 'owner/name of the central reports repo (publish-target=central-repo).'
+    required: false
+    default: ''
+  reports-branch:
+    description: 'Branch in the reports repo to commit to.'
+    required: false
+    default: 'main'
+  reports-token:
+    description: 'Token with contents:write on the reports repo.'
+    required: false
+    default: ''
+  product:
+    description: 'Product/path prefix in the reports repo, e.g. "acme".'
+    required: false
+    default: ''
+  repo-kind:
+    description: 'This repo kind: electron | react-native (used in the report path).'
+    required: false
+    default: ''
+
+  # --- PR comment + gating ---
+  comment-on-pr:
+    description: 'Post/update the markdown report as a PR comment.'
+    required: false
+    default: 'true'
+  comment-token:
+    description: 'Token used for the PR comment API.'
+    required: false
+    default: ${{ github.token }}
+  fail-on:
+    description: 'Fail the job on changes: none | major | any.'
+    required: false
+    default: 'none'
+
+outputs:
+  has-changes:
+    description: 'true if any dependency changed.'
+    value: ${{ steps.report.outputs.has-changes }}
+  added-count:
+    description: 'Number of added dependencies.'
+    value: ${{ steps.report.outputs.added-count }}
+  upgraded-count:
+    description: 'Number of upgraded dependencies.'
+    value: ${{ steps.report.outputs.upgraded-count }}
+  removed-count:
+    description: 'Number of removed dependencies.'
+    value: ${{ steps.report.outputs.removed-count }}
+  older-version:
+    description: 'Resolved baseline ("older") ref.'
+    value: ${{ steps.report.outputs.older-version }}
+  newer-version:
+    description: 'Resolved current ("newer") ref.'
+    value: ${{ steps.report.outputs.newer-version }}
+  report-json-path:
+    description: 'Absolute path to the generated report.json.'
+    value: ${{ steps.report.outputs.report-json-path }}
+  report-path:
+    description: 'Path of report.json committed to the central reports repo (if published).'
+    value: ${{ steps.publish.outputs.report-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Configure private npm auth (~/.npmrc)
+      shell: bash
+      env:
+        GH_PACKAGES_TOKEN: ${{ inputs.github-packages-token }}
+        SCOPES: ${{ inputs.github-packages-scopes }}
+      run: |
+        set -euo pipefail
+        # npm install runs inside git worktrees, so auth must live in the
+        # user-level ~/.npmrc (worktrees only contain committed files).
+        NPMRC="$HOME/.npmrc"
+        touch "$NPMRC"
+        if [ -n "${SCOPES}" ]; then
+          IFS=',' read -ra SCOPE_LIST <<< "${SCOPES}"
+          for raw in "${SCOPE_LIST[@]}"; do
+            scope="$(echo "$raw" | xargs)"   # trim whitespace
+            [ -z "$scope" ] && continue
+            case "$scope" in @*) ;; *) scope="@${scope}";; esac
+            # Drop any prior mapping for this scope, then append a fresh one.
+            grep -v "^${scope}:registry=" "$NPMRC" > "${NPMRC}.tmp" 2>/dev/null || true
+            mv "${NPMRC}.tmp" "$NPMRC"
+            echo "${scope}:registry=https://npm.pkg.github.com" >> "$NPMRC"
+            echo "Mapped ${scope} -> npm.pkg.github.com"
+          done
+          if ! grep -q "^//npm.pkg.github.com/:_authToken=" "$NPMRC"; then
+            echo "//npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}" >> "$NPMRC"
+          fi
+        else
+          echo "No github-packages-scopes provided; skipping GitHub Packages auth."
+        fi
+
+    - name: Install action dependencies
+      if: ${{ inputs.cli-version == '' }}
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --omit=dev
+
+    - name: Generate dependency report
+      id: report
+      shell: bash
+      env:
+        DCR_CLI_VERSION: ${{ inputs.cli-version }}
+        DCR_ACTION_PATH: ${{ github.action_path }}
+        DCR_BASE_REF: ${{ inputs.base-ref }}
+        DCR_CONFIG_FILE: ${{ inputs.config-file }}
+        DCR_IGNORE_DEV: ${{ inputs.ignore-dev }}
+        DCR_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        args=(auto --markdown --output-dir "${DCR_OUTPUT_DIR}")
+        [ "${DCR_IGNORE_DEV}" = "true" ] && args+=(--ignore-dev)
+        [ -n "${DCR_BASE_REF}" ] && args+=(--base-ref "${DCR_BASE_REF}")
+        [ -n "${DCR_CONFIG_FILE}" ] && args+=(--config-file "${DCR_CONFIG_FILE}")
+        if [ -n "${DCR_CLI_VERSION}" ]; then
+          npx --yes "dependency-change-report@${DCR_CLI_VERSION}" "${args[@]}"
+        else
+          node "${DCR_ACTION_PATH}/cli.mjs" "${args[@]}"
+        fi
+
+    - name: Publish report.json to central reports repo
+      id: publish
+      if: ${{ inputs.publish-target == 'central-repo' }}
+      shell: bash
+      env:
+        REPORTS_REPO: ${{ inputs.reports-repo }}
+        REPORTS_BRANCH: ${{ inputs.reports-branch }}
+        REPORTS_TOKEN: ${{ inputs.reports-token }}
+        PRODUCT: ${{ inputs.product }}
+        REPO_KIND: ${{ inputs.repo-kind }}
+        REPORT_JSON: ${{ steps.report.outputs.report-json-path }}
+      run: |
+        set -euo pipefail
+        if [ -z "${REPORTS_REPO}" ] || [ -z "${REPORTS_TOKEN}" ] || [ -z "${PRODUCT}" ] || [ -z "${REPO_KIND}" ]; then
+          echo "::error::publish-target=central-repo requires reports-repo, reports-token, product, and repo-kind."
+          exit 1
+        fi
+        if [ ! -f "${REPORT_JSON}" ]; then
+          echo "::error::report.json not found at ${REPORT_JSON}"
+          exit 1
+        fi
+
+        # Build a deterministic destination path: <product>/<repo-kind>/<event>/<ref-or-pr>/report.json
+        event="${GITHUB_EVENT_NAME:-manual}"
+        case "${event}" in
+          pull_request)
+            slug="pr/${GITHUB_REF_NAME%/merge}" ;;
+          push)
+            if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              slug="tag/${GITHUB_REF_NAME}"
+            else
+              slug="branch/${GITHUB_REF_NAME}"
+            fi ;;
+          *)
+            slug="other/${GITHUB_REF_NAME:-${GITHUB_SHA}}" ;;
+        esac
+        # Split into <prefix>/<rest>, then sanitize slashes in the rest (e.g. release/4.3 -> release-4.3)
+        prefix="${slug%%/*}"
+        safe_slug="$(echo "${slug#*/}" | tr '/' '-')"
+        dest="${PRODUCT}/${REPO_KIND}/${prefix}/${safe_slug}/report.json"
+
+        workdir="$(mktemp -d)"
+        git clone --depth 1 --branch "${REPORTS_BRANCH}" \
+          "https://x-access-token:${REPORTS_TOKEN}@github.com/${REPORTS_REPO}.git" "${workdir}" 2>/dev/null || \
+        git clone --depth 1 \
+          "https://x-access-token:${REPORTS_TOKEN}@github.com/${REPORTS_REPO}.git" "${workdir}"
+
+        mkdir -p "${workdir}/$(dirname "${dest}")"
+        cp "${REPORT_JSON}" "${workdir}/${dest}"
+
+        cd "${workdir}"
+        git config user.name "dependency-change-report[bot]"
+        git config user.email "dependency-change-report@users.noreply.github.com"
+        git add "${dest}"
+        if git diff --cached --quiet; then
+          echo "No change in report; nothing to commit."
+        else
+          git commit -m "report: ${PRODUCT}/${REPO_KIND} ${prefix}/${safe_slug}"
+          git push origin "HEAD:${REPORTS_BRANCH}"
+        fi
+        echo "report-path=${dest}" >> "$GITHUB_OUTPUT"
+        echo "Published to ${REPORTS_REPO}:${REPORTS_BRANCH} at ${dest}"
+
+    - name: Upload report artifact
+      if: ${{ inputs.publish-target == 'artifact' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-report-${{ github.run_id }}
+        path: ${{ inputs.output-dir }}/
+        retention-days: 30
+
+    - name: Comment PR with report
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.comment-token }}
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          const dir = process.env.DCR_OUTPUT_DIR;
+          if (!fs.existsSync(dir)) { core.info('No report dir; skipping comment.'); return; }
+          const md = fs.readdirSync(dir).find(f => f.endsWith('.md'));
+          if (!md) { core.info('No markdown report; skipping comment.'); return; }
+          let body = fs.readFileSync(path.join(dir, md), 'utf8');
+          const reportPath = process.env.DCR_REPORT_PATH;
+          const header = '## 📦 Dependency Change Report\n\n' +
+            (reportPath ? `Published report: \`${reportPath}\`\n\n` : '') + '---\n\n';
+          body = header + body;
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes('📦 Dependency Change Report'));
+          if (existing) {
+            await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+          } else {
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+          }
+      env:
+        DCR_OUTPUT_DIR: ${{ inputs.output-dir }}
+        DCR_REPORT_PATH: ${{ steps.publish.outputs.report-path }}
+
+    - name: Enforce change gate
+      if: ${{ inputs.fail-on != 'none' }}
+      shell: bash
+      env:
+        FAIL_ON: ${{ inputs.fail-on }}
+        ADDED: ${{ steps.report.outputs.added-count }}
+        UPGRADED: ${{ steps.report.outputs.upgraded-count }}
+        REMOVED: ${{ steps.report.outputs.removed-count }}
+        REPORT_JSON: ${{ steps.report.outputs.report-json-path }}
+      run: |
+        set -euo pipefail
+        if [ "${FAIL_ON}" = "any" ]; then
+          total=$(( ${ADDED:-0} + ${UPGRADED:-0} + ${REMOVED:-0} ))
+          if [ "${total}" -gt 0 ]; then
+            echo "::error::fail-on=any: ${total} dependency change(s) detected."
+            exit 1
+          fi
+        elif [ "${FAIL_ON}" = "major" ]; then
+          majors=$(node -e "const r=require('${REPORT_JSON}');console.log((r.changes.upgraded||[]).filter(u=>u.changeType==='major').length)")
+          if [ "${majors}" -gt 0 ]; then
+            echo "::error::fail-on=major: ${majors} major upgrade(s) detected."
+            exit 1
+          fi
+        fi

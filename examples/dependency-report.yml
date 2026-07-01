@@ -1,0 +1,45 @@
+# Per-repo dependency report. Drop this into BOTH the Electron and the React
+# Native repo as .github/workflows/dependency-report.yml — change only the
+# `repo-kind` value (electron | react-native).
+#
+# Required org secrets (see README "Setup"):
+#   DCR_PACKAGES_TOKEN  - reads @company/* from GitHub Packages (packages:read)
+#   DCR_REPORTS_TOKEN   - contents:write on the central reports repo
+name: Dependency Change Report
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'release/**']
+    tags: ['v*']
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # full history — version detection lists tags
+          fetch-tags: true
+
+      - uses: ryanramage/dependency-change-report@v2
+        with:
+          # --- this repo's identity in the central reports repo ---
+          product: acme
+          repo-kind: electron          # <- the ONLY line to change in the RN repo
+
+          # --- private npm (GitHub Packages) ---
+          github-packages-scopes: '@company,@company-internal'
+          github-packages-token: ${{ secrets.DCR_PACKAGES_TOKEN }}
+
+          # --- central reports repo ---
+          reports-repo: acme/dcr-reports
+          reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}
+
+          # baseline: omit to auto-detect (latest stable tag); or pin a release
+          # train via a committed .dcr.json: { "baseline": "v4.2.0" }
+          # base-ref: v4.2.0

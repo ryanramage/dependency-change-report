@@ -1,0 +1,4 @@
+{
+  "//": "Commit this to a frontend repo root to pin the baseline for a release train. Bump it when the train ships, or delete to return to auto-detection.",
+  "baseline": "v4.2.0"
+}

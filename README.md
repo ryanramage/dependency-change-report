@@ -239,169 +239,123 @@ Both lists are merged together, so packages will be excluded if they appear in e
 
 ## GitHub Actions Integration
 
-This tool is designed to work seamlessly with GitHub Actions to automatically generate dependency reports for pull requests and releases.
+Two reusable composite actions ship from this repo:
 
-### Basic Setup
+| Action | Use |
+|---|---|
+| `ryanramage/dependency-change-report@v2` | Per-repo: generate a report against the last release line, with private npm auth, and publish `report.json` to a central reports repo. |
+| `ryanramage/dependency-change-report/compare-action@v2` | Cross-repo: compare two repos' published reports (e.g. Electron vs React Native) to surface dependency drift. |
 
-Create `.github/workflows/dependency-report.yml` in your repository:
+Copy-paste workflows live in [`examples/`](./examples). The two-frontend pattern below (one Electron repo + one React Native repo per product, both consuming private `@company/*` packages) is the primary use case.
 
-```yaml
-name: Dependency Change Report
-on:
-  pull_request:
-    branches: [ main ]
+> **Action ↔ npm lockstep:** the action's major version tracks the npm major. Reference `@v2` to run the `2.x` line. By default the action runs the CLI bundled at that ref; set `cli-version` to run a published npm version via `npx` instead.
 
-jobs:
-  dependency-report:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0  # Need full history for version detection
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      
-      - name: Generate dependency report
-        run: npx dependency-change-report auto --output-dir ./reports
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Upload reports as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-reports
-          path: ./reports/
-          retention-days: 30
-```
+### Setup (one-time, per org)
 
-### Advanced Setup with PR Comments
+1. **Central reports repo.** Create a private repo, e.g. `acme/dcr-reports`. Each build commits its `report.json` here at a deterministic path so the sibling repo can read it:
 
-For automatic PR comments with the dependency report:
-
-```yaml
-name: Dependency Change Report
-on:
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  dependency-report:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-      
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      
-      - name: Generate dependency report
-        id: dep-report
-        run: npx dependency-change-report auto --output-dir ./reports
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Upload reports as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-report-PR-${{ github.event.number }}
-          path: ./reports/
-          retention-days: 30
-      
-      - name: Comment PR with report
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = './reports/dependency-report-PR-${{ github.event.number }}.md';
-            if (fs.existsSync(path)) {
-              const report = fs.readFileSync(path, 'utf8');
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: report
-              });
-            }
-```
-
-### Compare Specific Versions
-
-To compare specific commits or tags instead of auto-detection:
-
-```yaml
-      - name: Generate dependency report
-        run: npx dependency-change-report compare https://github.com/${{ github.repository }} ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} --output-dir ./reports
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-### Private Repository Support
-
-For private repositories, the tool automatically detects GitHub Actions environment and configures Git authentication using the provided `GITHUB_TOKEN`. Make sure to:
-
-1. **Include the token in your workflow step**:
-   ```yaml
-   env:
-     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
+   <product>/<repo-kind>/<event>/<ref-or-pr>/report.json
+     acme/electron/pr/123/report.json
+     acme/react-native/branch/main/report.json
+     acme/electron/tag/v4.3.0/report.json
    ```
 
-2. **Set appropriate permissions** in your workflow:
-   ```yaml
-   permissions:
-     contents: read
-     actions: read
-     pull-requests: write  # Only needed for PR comments
-   ```
+2. **Tokens (org secrets).** The default `${{ github.token }}` is repo-scoped and generally **cannot** read packages published from other repos or write to the reports repo. Provision an org PAT or GitHub App token:
+   - `DCR_PACKAGES_TOKEN` — `packages:read` (to install private `@company/*` deps).
+   - `DCR_REPORTS_TOKEN` — `contents:write` on the central reports repo.
 
-3. **Use the token in checkout** for private repositories:
-   ```yaml
-   - uses: actions/checkout@v4
-     with:
-       token: ${{ secrets.GITHUB_TOKEN }}
-       fetch-depth: 0
-   ```
+### Per-repo report workflow
 
-The tool will automatically configure Git to use the token for authentication when accessing private repositories.
+Drop [`examples/dependency-report.yml`](./examples/dependency-report.yml) into each frontend repo as `.github/workflows/dependency-report.yml`, changing only `repo-kind` (`electron` | `react-native`):
 
-### Available Outputs
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0      # full history — version detection lists tags
+    fetch-tags: true
+- uses: ryanramage/dependency-change-report@v2
+  with:
+    product: acme
+    repo-kind: electron
+    github-packages-scopes: '@company,@company-internal'
+    github-packages-token: ${{ secrets.DCR_PACKAGES_TOKEN }}
+    reports-repo: acme/dcr-reports
+    reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}
+```
 
-When running in GitHub Actions, the tool provides these outputs that can be used in subsequent steps:
+#### How private npm auth works (the part that used to fail)
 
-- `has-changes`: `true` if any dependencies changed
-- `added-count`: Number of added dependencies
-- `upgraded-count`: Number of upgraded dependencies  
-- `removed-count`: Number of removed dependencies
-- `report-dir`: Directory containing the generated reports
+The tool builds each version in a **git worktree** of your checkout, and runs `npm install` there. A project-level `.npmrc` written at runtime is *not* visible inside worktrees (they only contain committed files) — which is why ad-hoc `.npmrc` setups never worked. The action solves this by writing a **user-level `~/.npmrc`** that maps your scopes to GitHub Packages and is visible to every worktree:
 
-### Generated Files
+```
+@company:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=<DCR_PACKAGES_TOKEN>
+```
 
-In GitHub Actions, the tool automatically generates files with PR-specific names:
+Set `github-packages-scopes` to the scopes you consume; the token is passed via env only (never logged). Git auth for the private repo itself continues to work via the runner's authenticated checkout.
 
-- `dependency-report-PR-123.html` - Interactive HTML report
-- `dependency-report-PR-123.md` - Markdown report (perfect for PR comments)
-- `dependency-report-PR-123.txt` - Plain text report
-- `report.json` - Raw JSON data
+#### Report action inputs (selected)
 
-### Accessing Reports
+| Input | Default | Purpose |
+|---|---|---|
+| `base-ref` | `''` | Explicit baseline; overrides `.dcr.json` and auto-detection. |
+| `config-file` | `.dcr.json` | Config file holding a pinned baseline. |
+| `github-packages-scopes` | `''` | Comma-separated scopes mapped to GitHub Packages. |
+| `github-packages-token` | `${{ github.token }}` | Token for `npm.pkg.github.com`. |
+| `publish-target` | `central-repo` | `central-repo` \| `artifact` \| `none`. |
+| `reports-repo` / `reports-token` | `''` | Central reports repo and its `contents:write` token. |
+| `product` / `repo-kind` | `''` | Identity used to build the report path. |
+| `comment-on-pr` | `true` | Post/update the markdown report as a PR comment. |
+| `fail-on` | `none` | `none` \| `major` \| `any` — fail the job on changes. |
 
-Reports are saved as GitHub Actions artifacts and can be:
+Outputs: `has-changes`, `added-count`, `upgraded-count`, `removed-count`, `older-version`, `newer-version`, `report-json-path`, `report-path` (committed location).
 
-1. **Downloaded from the Actions tab** - Click on the workflow run and download the artifact
-2. **Viewed in PR comments** - If using the advanced setup with PR comments
-3. **Accessed programmatically** - Using the GitHub API to download artifacts
+### Baseline anchoring (comparing to the last release line)
+
+Baseline ("older" ref) resolves with this precedence:
+
+1. `base-ref` action input (per-run override).
+2. `baseline` field in `.dcr.json` at the repo root.
+3. Auto-detection — the latest **stable** tag (pre-releases like `-rc`/`-beta` are skipped), falling back to `main`/`master`.
+
+Pin a release train by committing a one-line `.dcr.json` (see [`examples/.dcr.json`](./examples/.dcr.json)):
+
+```json
+{ "baseline": "v4.2.0" }
+```
+
+**Recommended policy:**
+- **Tag builds:** leave it on auto — it compares the released tag against the prior stable tag.
+- **PR / release-branch builds:** pin the baseline via `.dcr.json` for the duration of the train (e.g. two weeks). This avoids the footgun where, once `v4.3.0` is tagged, auto-detection would compare `v4.3.0 → v4.3.0` (an empty report). Bump or remove the pin when the train ships.
+
+The pin also works locally:
+
+```bash
+dependency-change-report auto --base-ref v4.2.0
+```
+
+### Cross-repo dependency drift
+
+Near sprint end, compare the two repos' latest reports. Put [`examples/cross-repo-compare.yml`](./examples/cross-repo-compare.yml) in a small coordinating repo (or the reports repo itself):
+
+```yaml
+- uses: ryanramage/dependency-change-report/compare-action@v2
+  with:
+    reports-repo: acme/dcr-reports
+    reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}
+    report1-path: acme/electron/branch/main/report.json
+    report2-path: acme/react-native/branch/main/report.json
+    filter: 'react-native*,@expo/*,electron,electron-*'
+    comment-issue: '42'          # optional: post the drift summary to an issue
+    # fail-on-discrepancies: 'true'
+```
+
+The compare action checks out the reports repo and runs `dependency-change-compare` against the two local files — so private reports need no special fetch handling. (If you instead point `dependency-change-compare` at a private URL directly, set `DCR_TOKEN` so `loadReport` can send an auth header.)
+
+### Adopting on another product
+
+A new team following the same two-repo pattern only changes `product`, `repo-kind`, and the secret names — everything else is identical.
 
 ## License
 

@@ -4,12 +4,41 @@ import { analyzeDependencyChanges } from './lib/index.mjs';
 import { generateHtmlReport } from './lib/generate-html.mjs';
 import { generateTextReport } from './lib/generate-text.mjs';
 import { generateMarkdownReport } from './lib/generate-markdown.mjs';
-import { detectVersions } from './lib/utils/version-detector.mjs';
+import { detectVersions, detectCurrentRef } from './lib/utils/version-detector.mjs';
+import { resolveBaseline } from './lib/utils/config.mjs';
 import { dirname, join, basename } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
 import { executeCommand } from './lib/utils/command-executor.mjs';
-import { mkdir } from 'fs/promises';
+import { mkdir, appendFile } from 'fs/promises';
+
+/**
+ * Emit a GitHub Actions step output. Uses the modern $GITHUB_OUTPUT file when
+ * available, falling back to the legacy ::set-output command otherwise.
+ */
+const setActionOutput = async (name, value) => {
+  const outputFile = process.env.GITHUB_OUTPUT;
+  if (outputFile) {
+    await appendFile(outputFile, `${name}=${value}\n`);
+  } else {
+    console.log(`::set-output name=${name}::${value}`);
+  }
+};
+
+/**
+ * Emit the standard set of report outputs from a generated report.
+ */
+const emitReportOutputs = async (report, outputDir) => {
+  const hasChanges = report.changes.added.length > 0 || report.changes.upgraded.length > 0 || report.changes.removed.length > 0;
+  await setActionOutput('has-changes', hasChanges);
+  await setActionOutput('added-count', report.changes.added.length);
+  await setActionOutput('upgraded-count', report.changes.upgraded.length);
+  await setActionOutput('removed-count', report.changes.removed.length);
+  await setActionOutput('report-dir', outputDir);
+  await setActionOutput('report-json-path', report.reportPath);
+  await setActionOutput('older-version', report.olderVersion);
+  await setActionOutput('newer-version', report.newerVersion);
+};
 
 const compare = command(
   'compare',
@@ -173,12 +202,7 @@ const compare = command(
 
       // Output GitHub Actions commands if detected
       if (isGitHubActions) {
-        const hasChanges = report.changes.added.length > 0 || report.changes.upgraded.length > 0 || report.changes.removed.length > 0;
-        console.log(`::set-output name=has-changes::${hasChanges}`);
-        console.log(`::set-output name=added-count::${report.changes.added.length}`);
-        console.log(`::set-output name=upgraded-count::${report.changes.upgraded.length}`);
-        console.log(`::set-output name=removed-count::${report.changes.removed.length}`);
-        console.log(`::set-output name=report-dir::${outputDir}`);
+        await emitReportOutputs(report, outputDir);
       }
 
       console.log('\nReport generated successfully!');
@@ -211,6 +235,8 @@ const auto = command(
   flag('--html', 'generate a html report'),
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
+  flag('--base-ref [ref]', 'explicit baseline ("older") ref; overrides auto-detection and .dcr.json'),
+  flag('--config-file [path]', 'path to config file holding a pinned baseline (default: .dcr.json)'),
   arg('[repo]', 'repo url (optional if in git directory)'),
   async () => {
     try {
@@ -264,10 +290,22 @@ const auto = command(
         throw error;
       }
 
-      console.log(`Auto-detecting versions for ${repoUrl}...`);
+      // Resolve baseline: --base-ref flag > .dcr.json baseline > auto-detection
+      const baseline = await resolveBaseline(auto.flags.baseRef, '.', auto.flags.configFile || '.dcr.json');
 
-      // Detect versions automatically
-      const { newer, older } = await detectVersions('.');
+      let newer;
+      let older;
+      if (baseline) {
+        // Pinned baseline (e.g. a release train): only detect the current ref,
+        // skipping tag auto-detection so it never overrides the pin.
+        newer = await detectCurrentRef('.');
+        older = baseline;
+        const source = auto.flags.baseRef ? '--base-ref' : '.dcr.json';
+        console.log(`Using pinned baseline (${source}): ${older}`);
+      } else {
+        console.log(`Auto-detecting versions for ${repoUrl}...`);
+        ({ newer, older } = await detectVersions('.'));
+      }
 
       console.log(`Analyzing dependency changes between ${older} and ${newer}`);
 
@@ -362,12 +400,7 @@ const auto = command(
 
       // Output GitHub Actions commands if detected
       if (isGitHubActions) {
-        const hasChanges = report.changes.added.length > 0 || report.changes.upgraded.length > 0 || report.changes.removed.length > 0;
-        console.log(`::set-output name=has-changes::${hasChanges}`);
-        console.log(`::set-output name=added-count::${report.changes.added.length}`);
-        console.log(`::set-output name=upgraded-count::${report.changes.upgraded.length}`);
-        console.log(`::set-output name=removed-count::${report.changes.removed.length}`);
-        console.log(`::set-output name=report-dir::${outputDir}`);
+        await emitReportOutputs(report, outputDir);
       }
 
       console.log('\nReport generated successfully!');

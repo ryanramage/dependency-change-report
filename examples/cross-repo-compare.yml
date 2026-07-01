@@ -1,0 +1,36 @@
+# Cross-repo dependency drift, run near the end of each sprint. Put this in a
+# small coordinating repo (or the central reports repo itself) as
+# .github/workflows/cross-repo-compare.yml.
+#
+# It reads each project's latest report.json from the central reports repo and
+# compares the Electron vs React Native dependency sets.
+name: Cross-repo Dependency Drift
+
+on:
+  schedule:
+    - cron: '0 13 * * 4'   # Thursdays 13:00 UTC (adjust to your sprint cadence)
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: ryanramage/dependency-change-report/compare-action@v2
+        with:
+          reports-repo: acme/dcr-reports
+          reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}
+
+          # latest mainline report for each repo-kind
+          report1-path: acme/electron/branch/main/report.json
+          report2-path: acme/react-native/branch/main/report.json
+
+          # drop framework-only noise so the diff focuses on shared deps
+          filter: 'react-native*,@expo/*,electron,electron-*'
+          ignore-dev: 'true'
+
+          # post the drift summary to a tracking issue (optional)
+          comment-issue: '42'
+          # fail-on-discrepancies: 'true'   # uncomment to gate the sprint

@@ -1,0 +1,177 @@
+name: 'Dependency Change Compare (cross-repo)'
+description: >-
+  Compare the dependency reports of two sibling repos (e.g. Electron vs React
+  Native) from a central reports repo, surfacing dependency drift between them.
+author: 'ryanramage'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+
+inputs:
+  node-version:
+    description: 'Node.js version for the runner.'
+    required: false
+    default: '18'
+  cli-version:
+    description: >-
+      Version of dependency-change-report to run via npx. Leave empty to use the
+      CLI bundled with this action.
+    required: false
+    default: ''
+
+  reports-repo:
+    description: 'owner/name of the central reports repo holding both report.json files.'
+    required: true
+  reports-branch:
+    description: 'Branch of the reports repo to read.'
+    required: false
+    default: 'main'
+  reports-token:
+    description: 'Token with read access to the reports repo.'
+    required: true
+
+  report1-path:
+    description: 'Path to the first report.json within the reports repo (e.g. acme/electron/branch/main/report.json).'
+    required: true
+  report2-path:
+    description: 'Path to the second report.json within the reports repo (e.g. acme/react-native/branch/main/report.json).'
+    required: true
+
+  filter:
+    description: 'Comma-separated glob patterns to exclude (passed to --filter).'
+    required: false
+    default: ''
+  only:
+    description: 'Comma-separated glob patterns to include (passed to --only).'
+    required: false
+    default: ''
+  ignore-dev:
+    description: 'Exclude devDependencies from comparison.'
+    required: false
+    default: 'true'
+  include-nested:
+    description: 'Include nested/transitive dependencies in comparison.'
+    required: false
+    default: 'false'
+
+  output-dir:
+    description: 'Directory for the generated comparison report.'
+    required: false
+    default: './dcr-compare'
+  comment-issue:
+    description: 'Optional issue number (in this repo) to post the drift summary to.'
+    required: false
+    default: ''
+  comment-token:
+    description: 'Token used to post the issue comment.'
+    required: false
+    default: ${{ github.token }}
+  fail-on-discrepancies:
+    description: 'Fail the job if any discrepancies are found.'
+    required: false
+    default: 'false'
+
+outputs:
+  total-discrepancies:
+    description: 'Number of dependency discrepancies between the two projects.'
+    value: ${{ steps.compare.outputs.total-discrepancies }}
+  compare-json-path:
+    description: 'Path to the generated comparison JSON.'
+    value: ${{ steps.compare.outputs.compare-json-path }}
+  compare-md-path:
+    description: 'Path to the generated comparison markdown.'
+    value: ${{ steps.compare.outputs.compare-md-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Checkout central reports repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.reports-repo }}
+        ref: ${{ inputs.reports-branch }}
+        token: ${{ inputs.reports-token }}
+        path: .dcr-reports
+
+    - name: Install action dependencies
+      if: ${{ inputs.cli-version == '' }}
+      shell: bash
+      run: npm ci --omit=dev
+      working-directory: ${{ github.action_path }}/..
+
+    - name: Compare reports
+      id: compare
+      shell: bash
+      env:
+        DCR_CLI_VERSION: ${{ inputs.cli-version }}
+        DCR_ACTION_PATH: ${{ github.action_path }}
+        REPORT1: .dcr-reports/${{ inputs.report1-path }}
+        REPORT2: .dcr-reports/${{ inputs.report2-path }}
+        FILTER: ${{ inputs.filter }}
+        ONLY: ${{ inputs.only }}
+        IGNORE_DEV: ${{ inputs.ignore-dev }}
+        INCLUDE_NESTED: ${{ inputs.include-nested }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+        for f in "${REPORT1}" "${REPORT2}"; do
+          if [ ! -f "${f}" ]; then
+            echo "::error::Report not found in reports repo: ${f}"
+            exit 1
+          fi
+        done
+        mkdir -p "${OUTPUT_DIR}"
+        args=("${REPORT1}" "${REPORT2}" --markdown --output-dir "${OUTPUT_DIR}")
+        [ -n "${FILTER}" ] && args+=(--filter "${FILTER}")
+        [ -n "${ONLY}" ] && args+=(--only "${ONLY}")
+        [ "${IGNORE_DEV}" = "true" ] && args+=(--ignore-dev)
+        [ "${INCLUDE_NESTED}" = "true" ] && args+=(--include-nested)
+        if [ -n "${DCR_CLI_VERSION}" ]; then
+          npx --yes --package "dependency-change-report@${DCR_CLI_VERSION}" dependency-change-compare "${args[@]}"
+        else
+          node "$(dirname "${DCR_ACTION_PATH}")/compare-cli.mjs" "${args[@]}"
+        fi
+        json="$(ls -1t "${OUTPUT_DIR}"/compare-report-*.json | head -n1)"
+        md="$(ls -1t "${OUTPUT_DIR}"/compare-report-*.md 2>/dev/null | head -n1 || true)"
+        total="$(node -e "const r=require(require('path').resolve('${json}'));console.log(r.summary.totalDiscrepancies)")"
+        echo "compare-json-path=${json}" >> "$GITHUB_OUTPUT"
+        echo "compare-md-path=${md}" >> "$GITHUB_OUTPUT"
+        echo "total-discrepancies=${total}" >> "$GITHUB_OUTPUT"
+        echo "Total discrepancies: ${total}"
+
+    - name: Post drift summary to issue
+      if: ${{ inputs.comment-issue != '' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.comment-token }}
+        script: |
+          const fs = require('fs');
+          const mdPath = process.env.DCR_COMPARE_MD;
+          if (!mdPath || !fs.existsSync(mdPath)) { core.info('No markdown to post.'); return; }
+          const body = '## 🔀 Cross-repo Dependency Drift\n\n' + fs.readFileSync(mdPath, 'utf8');
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: Number(process.env.DCR_ISSUE),
+            body,
+          });
+      env:
+        DCR_COMPARE_MD: ${{ steps.compare.outputs.compare-md-path }}
+        DCR_ISSUE: ${{ inputs.comment-issue }}
+
+    - name: Enforce discrepancy gate
+      if: ${{ inputs.fail-on-discrepancies == 'true' }}
+      shell: bash
+      env:
+        TOTAL: ${{ steps.compare.outputs.total-discrepancies }}
+      run: |
+        set -euo pipefail
+        if [ "${TOTAL:-0}" -gt 0 ]; then
+          echo "::error::fail-on-discrepancies: ${TOTAL} discrepancy(ies) between the two projects."
+          exit 1
+        fi
