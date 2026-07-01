@@ -15,9 +15,9 @@ inputs:
     default: '18'
   cli-version:
     description: >-
-      Version (npm dist-tag or semver range) of dependency-change-report to run.
-      Leave empty to run the CLI bundled with this action (kept in lockstep with
-      the action ref).
+      Version (npm dist-tag or semver range) of dependency-change-report to run
+      via npx. Leave empty (default) to run the CLI bundled at this action's git
+      ref, which needs nothing published to npm.
     required: false
     default: ''
 
@@ -167,7 +167,7 @@ runs:
       if: ${{ inputs.cli-version == '' }}
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: npm ci --omit=dev
+      run: npm install --omit=dev --no-audit --no-fund
 
     - name: Generate dependency report
       id: report

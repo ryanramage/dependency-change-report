@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0      # full history — version detection lists tags
           fetch-tags: true
 
-      - uses: ryanramage/dependency-change-report@v2
+      - uses: ryanramage/dependency-change-report@v1
         with:
           # --- this repo's identity in the central reports repo ---
           product: acme

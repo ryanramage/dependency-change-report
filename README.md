@@ -243,12 +243,12 @@ Two reusable composite actions ship from this repo:
 
 | Action | Use |
 |---|---|
-| `ryanramage/dependency-change-report@v2` | Per-repo: generate a report against the last release line, with private npm auth, and publish `report.json` to a central reports repo. |
-| `ryanramage/dependency-change-report/compare-action@v2` | Cross-repo: compare two repos' published reports (e.g. Electron vs React Native) to surface dependency drift. |
+| `ryanramage/dependency-change-report@v1` | Per-repo: generate a report against the last release line, with private npm auth, and publish `report.json` to a central reports repo. |
+| `ryanramage/dependency-change-report/compare-action@v1` | Cross-repo: compare two repos' published reports (e.g. Electron vs React Native) to surface dependency drift. |
 
 Copy-paste workflows live in [`examples/`](./examples). The two-frontend pattern below (one Electron repo + one React Native repo per product, both consuming private `@company/*` packages) is the primary use case.
 
-> **Action ↔ npm lockstep:** the action's major version tracks the npm major. Reference `@v2` to run the `2.x` line. By default the action runs the CLI bundled at that ref; set `cli-version` to run a published npm version via `npx` instead.
+> **Versioning:** the action is versioned independently of the npm package via git tags on this repo — reference `@v1` (a moving major tag) to run the `1.x` action line. By default the action runs the CLI **bundled at that git ref**, so it needs nothing published to npm. Set the `cli-version` input only if you want the action to run a specific published npm version via `npx` instead.
 
 ### Setup (one-time, per org)
 
@@ -274,7 +274,7 @@ Drop [`examples/dependency-report.yml`](./examples/dependency-report.yml) into e
   with:
     fetch-depth: 0      # full history — version detection lists tags
     fetch-tags: true
-- uses: ryanramage/dependency-change-report@v2
+- uses: ryanramage/dependency-change-report@v1
   with:
     product: acme
     repo-kind: electron
@@ -340,7 +340,7 @@ dependency-change-report auto --base-ref v4.2.0
 Near sprint end, compare the two repos' latest reports. Put [`examples/cross-repo-compare.yml`](./examples/cross-repo-compare.yml) in a small coordinating repo (or the reports repo itself):
 
 ```yaml
-- uses: ryanramage/dependency-change-report/compare-action@v2
+- uses: ryanramage/dependency-change-report/compare-action@v1
   with:
     reports-repo: acme/dcr-reports
     reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}

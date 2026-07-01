@@ -101,7 +101,7 @@ runs:
     - name: Install action dependencies
       if: ${{ inputs.cli-version == '' }}
       shell: bash
-      run: npm ci --omit=dev
+      run: npm install --omit=dev --no-audit --no-fund
       working-directory: ${{ github.action_path }}/..
 
     - name: Compare reports

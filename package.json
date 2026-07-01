@@ -8,6 +8,12 @@
     "dependency-change-report": "cli.mjs",
     "dependency-change-compare": "compare-cli.mjs"
   },
+  "files": [
+    "cli.mjs",
+    "compare-cli.mjs",
+    "changelog-cli.mjs",
+    "lib/"
+  ],
   "scripts": {
     "test": "node --test tests/**/*.test.mjs",
     "test:watch": "node --test --watch tests/**/*.test.mjs",

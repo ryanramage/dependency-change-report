@@ -18,7 +18,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: ryanramage/dependency-change-report/compare-action@v2
+      - uses: ryanramage/dependency-change-report/compare-action@v1
         with:
           reports-repo: acme/dcr-reports
           reports-token: ${{ secrets.DCR_REPORTS_TOKEN }}
