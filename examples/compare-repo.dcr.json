@@ -1,0 +1,13 @@
+{
+  "//": "Put this as .dcr.json in a COORDINATING repo, then run `dependency-change-report projects`. Each project is analyzed locally (using an existing checkout via `path`, or cloned from `repo`) reading its OWN .dcr.json, then compared.",
+  "projects": [
+    { "name": "electron", "path": "../electron-app" },
+    { "name": "react-native", "repo": "https://github.com/acme/react-native.git", "ref": "main" }
+  ],
+  "compare": {
+    "filter": ["react-native*", "@expo/*", "electron", "electron-*"],
+    "only": [],
+    "ignoreDev": true,
+    "includeNested": false
+  }
+}

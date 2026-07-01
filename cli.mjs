@@ -5,12 +5,16 @@ import { generateHtmlReport } from './lib/generate-html.mjs';
 import { generateTextReport } from './lib/generate-text.mjs';
 import { generateMarkdownReport } from './lib/generate-markdown.mjs';
 import { detectVersions, detectCurrentRef } from './lib/utils/version-detector.mjs';
-import { resolveBaseline } from './lib/utils/config.mjs';
-import { dirname, join, basename } from 'path';
+import { resolveBaseline, readDcrConfig, resolveIgnoreDev, resolveSkipFullInventory, resolveOutput, splitIgnoreEntries, readProjects, readCompareOptions } from './lib/utils/config.mjs';
+import { cloneRepo } from './lib/git/repository.mjs';
+import { compareReports } from './lib/compare-reports.mjs';
+import { generateCompareMarkdown } from './lib/generate-compare-markdown.mjs';
+import { dirname, join, basename, resolve } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
+import { existsSync } from 'fs';
 import { executeCommand } from './lib/utils/command-executor.mjs';
-import { mkdir, appendFile } from 'fs/promises';
+import { mkdir, appendFile, writeFile } from 'fs/promises';
 
 /**
  * Emit a GitHub Actions step output. Uses the modern $GITHUB_OUTPUT file when
@@ -40,6 +44,28 @@ const emitReportOutputs = async (report, outputDir) => {
   await setActionOutput('newer-version', report.newerVersion);
 };
 
+/**
+ * Generate the requested report formats from a report.json.
+ * @param {string[]} formats - subset of 'html' | 'markdown' | 'text'
+ */
+const generateFormats = async (reportJsonPath, outputDir, baseFilename, formats) => {
+  for (const fmt of formats) {
+    if (fmt === 'html') {
+      const htmlPath = join(outputDir, `${baseFilename}.html`);
+      await generateHtmlReport(reportJsonPath, htmlPath);
+      console.log(`🌐 HTML: ${htmlPath}`);
+    } else if (fmt === 'markdown') {
+      const markdownPath = join(outputDir, `${baseFilename}.md`);
+      await generateMarkdownReport(reportJsonPath, markdownPath);
+      console.log(`📝 Markdown: ${markdownPath}`);
+    } else if (fmt === 'text') {
+      const textPath = join(outputDir, `${baseFilename}.txt`);
+      await generateTextReport(reportJsonPath, textPath);
+      console.log(`📝 Text: ${textPath}`);
+    }
+  }
+};
+
 const compare = command(
   'compare',
   flag('--ignore-dev', 'ignore dev dependencies'),
@@ -52,6 +78,7 @@ const compare = command(
   flag('--markdown', 'generate a markdown report'),
   flag('--text', 'generate a text only report'),
   flag('--repo [url]', 'repo url (optional if in git directory)'),
+  flag('--config-file [path]', 'path to .dcr.json config (default: .dcr.json)'),
   arg('<older>', 'the older tag, commit, or branch'),
   arg('<newer>', 'the newer tag, commit, or branch'),
   async () => {
@@ -80,7 +107,7 @@ const compare = command(
       const newerVersion = compare.args.newer;
 
       // Use temp directory if working-dir not specified
-      let workingDir = compare.flags['working-dir'];
+      let workingDir = compare.flags.workingDir;
       if (!workingDir) {
         const paths = envPaths('dependency-change-report');
         workingDir = paths.temp;
@@ -95,11 +122,15 @@ const compare = command(
         console.log('GitHub Actions detected - using authenticated repository');
       }
 
-      // Set up output directory
-      let outputDir = compare.flags.outputDir;
-      if (!outputDir) {
-        outputDir = workingDir; // Default to working directory
-      }
+      // Load .dcr.json config; flags take precedence, config fills gaps.
+      const config = await readDcrConfig('.', compare.flags.configFile || '.dcr.json');
+      const ignoreDev = resolveIgnoreDev(compare.flags.ignoreDev, config);
+      const generateFullInventory = !resolveSkipFullInventory(compare.flags.skipFullInventory, config);
+      const extraIgnore = splitIgnoreEntries(Array.isArray(config.ignore) ? config.ignore : []);
+      const resolvedOutput = resolveOutput(compare.flags.outputDir, { html: compare.flags.html, markdown: compare.flags.markdown, text: compare.flags.text }, config);
+
+      // Set up output directory (flag > config > working dir)
+      const outputDir = resolvedOutput.dir || workingDir;
 
       // Ensure output directory exists
       try {
@@ -111,7 +142,7 @@ const compare = command(
 
       console.log(`Analyzing dependency changes for ${repoUrl} between older version (${olderVersion}) and newer version (${newerVersion})`);
 
-      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, compare.flags.ignoreDev, compare.flags.debugTree, compare.flags.cleanupWorktrees, !compare.flags.skipFullInventory);
+      const report = await analyzeDependencyChanges(repoUrl, olderVersion, newerVersion, workingDir, null, ignoreDev, compare.flags.debugTree, compare.flags.cleanupWorktrees, generateFullInventory, { repoDir: process.cwd(), extraIgnore });
 
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
@@ -167,38 +198,9 @@ const compare = command(
         baseFilename = `${olderSafe}→${newerSafe}`;
       }
 
-      if (compare.flags.html || compare.flags.markdown || compare.flags.text) {
-        if (compare.flags.html) {
-          const htmlPath = join(outputDir, `${baseFilename}.html`);
-          await generateHtmlReport(reportJsonPath, htmlPath);
-          console.log(`🌐 HTML: ${htmlPath}`);
-        }
-
-        if (compare.flags.markdown) {
-          const markdownPath = join(outputDir, `${baseFilename}.md`);
-          await generateMarkdownReport(reportJsonPath, markdownPath);
-          console.log(`📝 Markdown: ${markdownPath}`);
-        }
-
-        if (compare.flags.text) {
-          const textPath = join(outputDir, `${baseFilename}.txt`);
-          await generateTextReport(reportJsonPath, textPath);
-          console.log(`📝 Text: ${textPath}`);
-        }
-      } else {
-        // Generate HTML, Markdown, and text reports by default
-        const htmlPath = join(outputDir, `${baseFilename}.html`);
-        const markdownPath = join(outputDir, `${baseFilename}.md`);
-        const textPath = join(outputDir, `${baseFilename}.txt`);
-
-        await generateHtmlReport(reportJsonPath, htmlPath);
-        await generateMarkdownReport(reportJsonPath, markdownPath);
-        await generateTextReport(reportJsonPath, textPath);
-
-        console.log(`🌐 HTML: ${htmlPath}`);
-        console.log(`📝 Markdown: ${markdownPath}`);
-        console.log(`📝 Text: ${textPath}`);
-      }
+      // Formats: CLI flags > config output.formats > all three (default)
+      const formats = resolvedOutput.formats || ['html', 'markdown', 'text'];
+      await generateFormats(reportJsonPath, outputDir, baseFilename, formats);
 
       // Output GitHub Actions commands if detected
       if (isGitHubActions) {
@@ -261,7 +263,7 @@ const auto = command(
       }
 
       // Use temp directory if working-dir not specified
-      let workingDir = auto.flags['working-dir'];
+      let workingDir = auto.flags.workingDir;
       if (!workingDir) {
         const paths = envPaths('dependency-change-report');
         workingDir = paths.temp;
@@ -276,11 +278,15 @@ const auto = command(
         console.log('GitHub Actions detected - using authenticated repository');
       }
 
-      // Set up output directory
-      let outputDir = auto.flags.outputDir;
-      if (!outputDir) {
-        outputDir = workingDir; // Default to working directory
-      }
+      // Load .dcr.json config; flags take precedence, config fills gaps.
+      const config = await readDcrConfig('.', auto.flags.configFile || '.dcr.json');
+      const ignoreDev = resolveIgnoreDev(auto.flags.ignoreDev, config);
+      const generateFullInventory = !resolveSkipFullInventory(auto.flags.skipFullInventory, config);
+      const extraIgnore = splitIgnoreEntries(Array.isArray(config.ignore) ? config.ignore : []);
+      const resolvedOutput = resolveOutput(auto.flags.outputDir, { html: auto.flags.html, markdown: auto.flags.markdown, text: auto.flags.text }, config);
+
+      // Set up output directory (flag > config > working dir)
+      const outputDir = resolvedOutput.dir || workingDir;
 
       // Ensure output directory exists
       try {
@@ -291,7 +297,7 @@ const auto = command(
       }
 
       // Resolve baseline: --base-ref flag > .dcr.json baseline > auto-detection
-      const baseline = await resolveBaseline(auto.flags.baseRef, '.', auto.flags.configFile || '.dcr.json');
+      const baseline = auto.flags.baseRef || config.baseline || null;
 
       let newer;
       let older;
@@ -309,7 +315,7 @@ const auto = command(
 
       console.log(`Analyzing dependency changes between ${older} and ${newer}`);
 
-      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, auto.flags.ignoreDev, auto.flags.debugTree, auto.flags.cleanupWorktrees, !auto.flags.skipFullInventory);
+      const report = await analyzeDependencyChanges(repoUrl, older, newer, workingDir, null, ignoreDev, auto.flags.debugTree, auto.flags.cleanupWorktrees, generateFullInventory, { repoDir: process.cwd(), extraIgnore });
 
       console.log('\nSummary:');
       console.log(`Added dependencies: ${report.changes.added.length}`);
@@ -365,38 +371,9 @@ const auto = command(
         baseFilename = `${olderSafe}→${newerSafe}`;
       }
 
-      if (auto.flags.html || auto.flags.markdown || auto.flags.text) {
-        if (auto.flags.html) {
-          const htmlPath = join(outputDir, `${baseFilename}.html`);
-          await generateHtmlReport(reportJsonPath, htmlPath);
-          console.log(`🌐 HTML: ${htmlPath}`);
-        }
-
-        if (auto.flags.markdown) {
-          const markdownPath = join(outputDir, `${baseFilename}.md`);
-          await generateMarkdownReport(reportJsonPath, markdownPath);
-          console.log(`📝 Markdown: ${markdownPath}`);
-        }
-
-        if (auto.flags.text) {
-          const textPath = join(outputDir, `${baseFilename}.txt`);
-          await generateTextReport(reportJsonPath, textPath);
-          console.log(`📝 Text: ${textPath}`);
-        }
-      } else {
-        // Generate HTML, Markdown, and text reports by default
-        const htmlPath = join(outputDir, `${baseFilename}.html`);
-        const markdownPath = join(outputDir, `${baseFilename}.md`);
-        const textPath = join(outputDir, `${baseFilename}.txt`);
-
-        await generateHtmlReport(reportJsonPath, htmlPath);
-        await generateMarkdownReport(reportJsonPath, markdownPath);
-        await generateTextReport(reportJsonPath, textPath);
-
-        console.log(`🌐 HTML: ${htmlPath}`);
-        console.log(`📝 Markdown: ${markdownPath}`);
-        console.log(`📝 Text: ${textPath}`);
-      }
+      // Formats: CLI flags > config output.formats > all three (default)
+      const formats = resolvedOutput.formats || ['html', 'markdown', 'text'];
+      await generateFormats(reportJsonPath, outputDir, baseFilename, formats);
 
       // Output GitHub Actions commands if detected
       if (isGitHubActions) {
@@ -412,6 +389,134 @@ const auto = command(
     }
   }
 )
+const isGitCheckout = (dir) => existsSync(join(dir, '.git'));
+
+/**
+ * Resolve the git directory to analyze for a project: prefer an existing local
+ * checkout (`project.path`); otherwise clone `project.repo` into the working
+ * dir (full clone so both baseline + current refs are available). Reuses an
+ * existing clone by fetching. Returns the dir, or null if neither is usable.
+ */
+const resolveProjectDir = async (project, workingDir) => {
+  if (project.path) {
+    const resolved = resolve(project.path);
+    if (isGitCheckout(resolved)) {
+      console.log(`Using local checkout: ${resolved}`);
+      return resolved;
+    }
+    console.warn(`Configured path is not a git checkout: ${resolved}`);
+  }
+  if (project.repo) {
+    const dest = join(workingDir, 'checkouts', project.name);
+    if (isGitCheckout(dest)) {
+      console.log(`Reusing clone at ${dest} (fetching latest)...`);
+      try {
+        await executeCommand('git', ['fetch', '--all', '--tags', '--prune'], dest, 120000, `git fetch ${project.name}`, false);
+      } catch (error) {
+        console.warn(`Fetch failed for ${project.name}: ${error.message}`);
+      }
+      if (project.ref) {
+        try {
+          await executeCommand('git', ['checkout', project.ref], dest, 60000, `git checkout ${project.ref}`, false);
+        } catch (error) {
+          console.warn(`Checkout of ${project.ref} failed for ${project.name}: ${error.message}`);
+        }
+      }
+      return dest;
+    }
+    console.log(`Cloning ${project.repo} into ${dest}...`);
+    await cloneRepo(project.repo, project.ref || null, dest, false, { shallow: false });
+    return dest;
+  }
+  return null;
+};
+
+const projects = command(
+  'projects',
+  summary('generate reports for multiple repos (from .dcr.json) and compare them'),
+  flag('--config-file [path]', 'path to the compare-repo .dcr.json (default: .dcr.json)'),
+  flag('--working-dir [path]', 'working dir for checkouts/worktrees (default: temp dir)'),
+  flag('--output-dir [path]', 'directory to save comparison reports (default: current dir)'),
+  flag('--markdown', 'generate a Markdown report (default when no format flag given)'),
+  flag('--html', 'generate an HTML report'),
+  flag('--text', 'generate a text report'),
+  async () => {
+    try {
+      const configFile = projects.flags.configFile || '.dcr.json';
+      const projectList = await readProjects('.', configFile);
+      if (projectList.length < 2) {
+        throw new Error('The `projects` command needs at least 2 projects in .dcr.json (a "projects" array with name + path/repo).');
+      }
+      const compareOpts = await readCompareOptions('.', configFile);
+
+      let workingDir = projects.flags.workingDir;
+      if (!workingDir) {
+        workingDir = envPaths('dependency-change-report').temp;
+      }
+      const outputDir = projects.flags.outputDir || process.cwd();
+      await mkdir(outputDir, { recursive: true });
+
+      // 1. Generate a report for each project, reading its OWN .dcr.json.
+      const generated = [];
+      for (const project of projectList) {
+        console.log(`\n=== Project: ${project.name} ===`);
+        const repoDir = await resolveProjectDir(project, workingDir);
+        if (!repoDir) {
+          console.warn(`Skipping ${project.name}: no usable local path or repo URL.`);
+          continue;
+        }
+
+        const pcfg = await readDcrConfig(repoDir);
+        const newer = project.ref || await detectCurrentRef(repoDir);
+        let older = project.baseline || await resolveBaseline(undefined, repoDir);
+        if (!older) {
+          older = (await detectVersions(repoDir)).older;
+        }
+        const ignoreDev = resolveIgnoreDev(false, pcfg);
+        const generateFullInventory = !resolveSkipFullInventory(false, pcfg);
+        const extraIgnore = splitIgnoreEntries(Array.isArray(pcfg.ignore) ? pcfg.ignore : []);
+
+        console.log(`Analyzing ${project.name} between ${older} and ${newer}...`);
+        const report = await analyzeDependencyChanges(
+          project.repo || project.name, older, newer, join(workingDir, project.name),
+          null, ignoreDev, false, false, generateFullInventory, { repoDir, extraIgnore }
+        );
+        generated.push({ name: project.name, path: report.reportPath });
+      }
+
+      if (generated.length < 2) {
+        throw new Error('Fewer than 2 reports were generated; cannot compare.');
+      }
+
+      // 2. Compare: 2 projects -> a single pair; >2 -> first-vs-rest.
+      const wantMarkdown = (!projects.flags.html && !projects.flags.text) || projects.flags.markdown;
+      const base = generated[0];
+      for (let i = 1; i < generated.length; i++) {
+        const other = generated[i];
+        console.log(`\nComparing ${base.name} vs ${other.name}...`);
+        const result = await compareReports(base.path, other.path, compareOpts);
+        const baseName = `compare-${base.name}-vs-${other.name}`;
+
+        const jsonPath = join(outputDir, `${baseName}.json`);
+        await writeFile(jsonPath, JSON.stringify(result, null, 2));
+        console.log(`📄 JSON: ${jsonPath}`);
+        console.log(`   Discrepancies: ${result.summary.totalDiscrepancies}, matching: ${result.summary.totalMatching}`);
+
+        if (wantMarkdown) {
+          const mdPath = join(outputDir, `${baseName}.md`);
+          await generateCompareMarkdown(result, mdPath);
+          console.log(`📝 Markdown: ${mdPath}`);
+        }
+      }
+
+      console.log('\nProjects comparison complete!');
+    } catch (error) {
+      console.error(`Error: ${error.message}`);
+      process.exit(1);
+    }
+  }
+);
+
 // Default action when no subcommand is provided
 const defaultAction = async () => {
   console.log('🔍 Dependency Change Report\n');
@@ -477,7 +582,7 @@ const defaultAction = async () => {
   console.log('   dependency-change-report --help');
 };
 
-const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, auto)
+const cmd = command('dependency-change-report', summary('show dependency changes between versions'), compare, auto, projects)
 const init = async () => {
   // If no arguments provided (just the command name), run default action
   if (process.argv.length === 2) {

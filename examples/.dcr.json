@@ -1,4 +1,8 @@
 {
-  "//": "Commit this to a frontend repo root to pin the baseline for a release train. Bump it when the train ships, or delete to return to auto-detection.",
-  "baseline": "v4.2.0"
+  "//": "Commit this to a FRONTEND repo root. All fields optional. baseline pins the 'older' ref for a release train (delete for auto-detect). ignore merges with any .dcrignore. Flags still override these.",
+  "baseline": "v4.2.0",
+  "ignore": ["@types/*", "eslint*", "jest"],
+  "ignoreDev": true,
+  "skipFullInventory": false,
+  "output": { "dir": "./dcr-reports", "formats": ["html", "markdown"] }
 }

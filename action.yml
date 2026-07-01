@@ -51,9 +51,9 @@ inputs:
 
   # --- Report generation ---
   ignore-dev:
-    description: 'Pass --ignore-dev to exclude devDependencies.'
+    description: 'Set "true" to force --ignore-dev. Leave empty to defer to the repo''s .dcr.json (ignoreDev).'
     required: false
-    default: 'true'
+    default: ''
   output-dir:
     description: 'Directory for generated reports.'
     required: false

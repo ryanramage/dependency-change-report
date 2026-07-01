@@ -231,9 +231,59 @@ Both lists are merged together, so packages will be excluded if they appear in e
 - The `devDependencies` section of `package.json`
 - The `.dcrignore` file
 
+## Configuration (`.dcr.json`)
+
+A `.dcr.json` file lets a repo carry its own defaults so local runs and CI behave identically. Every field is optional, and **CLI flags always take precedence** over config. Commit it to the repo root.
+
+```json
+{
+  "baseline": "v4.2.0",
+  "ignore": ["@types/*", "eslint*", "jest"],
+  "ignoreDev": true,
+  "skipFullInventory": false,
+  "output": { "dir": "./dcr-reports", "formats": ["html", "markdown"] }
+}
+```
+
+| Field | Effect |
+|---|---|
+| `baseline` | Pins the "older" ref (e.g. a release train). Overrides auto-detection; delete to return to latest-stable-tag detection. |
+| `ignore` | Glob/exact package names to exclude. **Merged (union)** with any `.dcrignore` file — both keep working. |
+| `ignoreDev` | Default for `--ignore-dev`. |
+| `skipFullInventory` | Default for `--skip-full-inventory`. |
+| `output.dir` / `output.formats` | Default output directory and which formats (`html`/`markdown`/`text`) to emit. |
+
+Precedence for every setting: **CLI flag > `.dcr.json` > built-in default** (except `ignore`, which is additive). See [`examples/.dcr.json`](./examples/.dcr.json).
+
+## Local multi-repo compare (`projects`)
+
+For the common "two frontends per product" pattern (e.g. an Electron app and a React Native app sharing private packages), you can generate both reports and compare them **locally, in one command** — using your own git credentials and `~/.npmrc`, with no CI tokens required.
+
+Create a `.dcr.json` in a coordinating repo (see [`examples/compare-repo.dcr.json`](./examples/compare-repo.dcr.json)):
+
+```json
+{
+  "projects": [
+    { "name": "electron", "path": "../electron-app" },
+    { "name": "react-native", "repo": "https://github.com/acme/react-native.git", "ref": "main" }
+  ],
+  "compare": { "filter": ["react-native*", "@expo/*"], "ignoreDev": true }
+}
+```
+
+Then run:
+
+```bash
+dependency-change-report projects
+```
+
+For each project it: resolves a directory (uses the local `path` if it's a checkout, otherwise clones `repo` into a working dir), reads **that project's own `.dcr.json`** for baseline/ignore, generates its report, and finally compares the projects (pairwise for two; first-vs-rest for more). Outputs `compare-<a>-vs-<b>.json`/`.md` to `--output-dir` (default: current directory).
+
+Project fields: `name` (required), `path` (local checkout), `repo` (git URL, cloned if no usable `path`), `ref`/`baseline` (optional per-project overrides). The `compare` block maps to the [`dependency-change-compare` options](#usage) (`filter`→exclude, `only`→include, `ignoreDev`, `includeNested`).
+
 ## Requirements
 
-- Node.js 14 or higher
+- Node.js 18 or higher
 - Git
 - npm
 
