@@ -116,6 +116,12 @@ describe('config', () => {
       assert.equal(resolveIgnoreDev(false, {}), false);
       assert.equal(resolveSkipFullInventory(undefined, {}), false);
     });
+
+    it('honors an explicit defaultValue (projects mode) but lets config opt out', () => {
+      assert.equal(resolveIgnoreDev(false, {}, true), true);                    // default on
+      assert.equal(resolveIgnoreDev(false, { ignoreDev: false }, true), false); // repo opts out
+      assert.equal(resolveIgnoreDev(true, { ignoreDev: false }, true), true);   // explicit flag still wins
+    });
   });
 
   describe('resolveOutput', () => {

@@ -12,9 +12,10 @@ import { generateCompareMarkdown } from './lib/generate-compare-markdown.mjs';
 import { dirname, join, basename, resolve } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
+import PQueue from 'p-queue';
 import { existsSync } from 'fs';
 import { executeCommand } from './lib/utils/command-executor.mjs';
-import { mkdir, appendFile, writeFile } from 'fs/promises';
+import { mkdir, appendFile, writeFile, copyFile, rm } from 'fs/promises';
 
 /**
  * Emit a GitHub Actions step output. Uses the modern $GITHUB_OUTPUT file when
@@ -411,7 +412,7 @@ const resolveProjectDir = async (project, workingDir) => {
     if (isGitCheckout(dest)) {
       console.log(`Reusing clone at ${dest} (fetching latest)...`);
       try {
-        await executeCommand('git', ['fetch', '--all', '--tags', '--prune'], dest, 120000, `git fetch ${project.name}`, false);
+        await executeCommand('git', ['fetch', '--all', '--tags', '--prune'], dest, 600000, `git fetch ${project.name}`, false);
       } catch (error) {
         console.warn(`Fetch failed for ${project.name}: ${error.message}`);
       }
@@ -431,12 +432,71 @@ const resolveProjectDir = async (project, workingDir) => {
   return null;
 };
 
+/**
+ * Generate a dependency report for one project, reading its own .dcr.json.
+ * Returns { name, path } or null on failure so one bad project doesn't abort
+ * the whole run. `parallelism` (>1 when running projects concurrently)
+ * suppresses the interactive progress bar and caps changelog concurrency so
+ * parallel analyses don't fight over the terminal or hit GitHub rate limits.
+ */
+const generateProjectReport = async (project, workingDir, parallelism, outputDir) => {
+  const label = `[${project.name}]`;
+  try {
+    const repoDir = await resolveProjectDir(project, workingDir);
+    if (!repoDir) {
+      console.warn(`${label} Skipping: no usable local path or repo URL.`);
+      return null;
+    }
+
+    const pcfg = await readDcrConfig(repoDir);
+    const newer = project.ref || await detectCurrentRef(repoDir);
+    let older = project.baseline || await resolveBaseline(undefined, repoDir);
+    if (!older) {
+      older = (await detectVersions(repoDir)).older;
+    }
+    // In projects mode, ignore devDependencies by default (less config); a repo
+    // can opt back in with "ignoreDev": false in its own .dcr.json.
+    const ignoreDev = resolveIgnoreDev(false, pcfg, true);
+    const generateFullInventory = !resolveSkipFullInventory(false, pcfg);
+    const extraIgnore = splitIgnoreEntries(Array.isArray(pcfg.ignore) ? pcfg.ignore : []);
+
+    const quietProgress = parallelism > 1;
+    const changelogConcurrency = parallelism > 1 ? Math.max(1, Math.floor(5 / parallelism)) : 5;
+
+    console.log(`${label} Analyzing between ${older} and ${newer}...`);
+    const report = await analyzeDependencyChanges(
+      project.repo || project.name, older, newer, join(workingDir, project.name),
+      null, ignoreDev, false, false, generateFullInventory,
+      { repoDir, extraIgnore, quietProgress, changelogConcurrency, minimizeDisk: true }
+    );
+
+    // Save report.json to the output dir, then delete the heavy scratch dir
+    // (worktrees + node_modules). Keeps disk bounded across projects/runs —
+    // otherwise each run leaves a full node_modules copy behind and fills the
+    // working dir (often a small tmpfs).
+    const savedPath = join(outputDir, `${project.name}.report.json`);
+    await copyFile(report.reportPath, savedPath);
+    try {
+      await rm(dirname(report.reportPath), { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`${label} Could not clean scratch dir: ${error.message}`);
+    }
+
+    console.log(`${label} Report ready.`);
+    return { name: project.name, path: savedPath };
+  } catch (error) {
+    console.error(`${label} Failed: ${error.message}`);
+    return null;
+  }
+};
+
 const projects = command(
   'projects',
   summary('generate reports for multiple repos (from .dcr.json) and compare them'),
   flag('--config-file [path]', 'path to the compare-repo .dcr.json (default: .dcr.json)'),
   flag('--working-dir [path]', 'working dir for checkouts/worktrees (default: temp dir)'),
   flag('--output-dir [path]', 'directory to save comparison reports (default: current dir)'),
+  flag('--concurrency [n]', 'how many projects to analyze in parallel (default: up to 4; 1 = serial with progress bars)'),
   flag('--markdown', 'generate a Markdown report (default when no format flag given)'),
   flag('--html', 'generate an HTML report'),
   flag('--text', 'generate a text report'),
@@ -447,45 +507,51 @@ const projects = command(
       if (projectList.length < 2) {
         throw new Error('The `projects` command needs at least 2 projects in .dcr.json (a "projects" array with name + path/repo).');
       }
+      // Project names key the per-project checkout + scratch dirs, so they must
+      // be unique (especially under parallelism, where collisions would clash).
+      const names = projectList.map((p) => p.name);
+      const dupes = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+      if (dupes.length > 0) {
+        throw new Error(`Duplicate project name(s) in .dcr.json: ${dupes.join(', ')}. Project names must be unique.`);
+      }
+
       const compareOpts = await readCompareOptions('.', configFile);
 
       let workingDir = projects.flags.workingDir;
       if (!workingDir) {
-        workingDir = envPaths('dependency-change-report').temp;
+        // Use the disk-backed cache dir, NOT the temp dir — temp is often a
+        // small RAM tmpfs, and projects mode writes many GB of node_modules and
+        // clones (per project, per version). Overridable with --working-dir.
+        workingDir = envPaths('dependency-change-report').cache;
       }
       const outputDir = projects.flags.outputDir || process.cwd();
       await mkdir(outputDir, { recursive: true });
 
-      // 1. Generate a report for each project, reading its OWN .dcr.json.
-      const generated = [];
-      for (const project of projectList) {
-        console.log(`\n=== Project: ${project.name} ===`);
-        const repoDir = await resolveProjectDir(project, workingDir);
-        if (!repoDir) {
-          console.warn(`Skipping ${project.name}: no usable local path or repo URL.`);
-          continue;
-        }
+      // Resolve parallelism: flag > default (up to 4), clamped to [1, #projects].
+      const requested = parseInt(projects.flags.concurrency, 10);
+      const parallelism = Math.max(1, Math.min(
+        Number.isNaN(requested) ? Math.min(projectList.length, 4) : requested,
+        projectList.length
+      ));
 
-        const pcfg = await readDcrConfig(repoDir);
-        const newer = project.ref || await detectCurrentRef(repoDir);
-        let older = project.baseline || await resolveBaseline(undefined, repoDir);
-        if (!older) {
-          older = (await detectVersions(repoDir)).older;
-        }
-        const ignoreDev = resolveIgnoreDev(false, pcfg);
-        const generateFullInventory = !resolveSkipFullInventory(false, pcfg);
-        const extraIgnore = splitIgnoreEntries(Array.isArray(pcfg.ignore) ? pcfg.ignore : []);
-
-        console.log(`Analyzing ${project.name} between ${older} and ${newer}...`);
-        const report = await analyzeDependencyChanges(
-          project.repo || project.name, older, newer, join(workingDir, project.name),
-          null, ignoreDev, false, false, generateFullInventory, { repoDir, extraIgnore }
-        );
-        generated.push({ name: project.name, path: report.reportPath });
-      }
+      // 1. Generate each project's report (reading its OWN .dcr.json), in
+      // parallel up to `parallelism`. Promise.all over the mapped queue tasks
+      // preserves input order, so generated[0] stays the first-listed project.
+      console.log(`Generating ${projectList.length} reports (concurrency: ${parallelism})...`);
+      const queue = new PQueue({ concurrency: parallelism });
+      const results = await Promise.all(
+        projectList.map((project) => queue.add(() => generateProjectReport(project, workingDir, parallelism, outputDir)))
+      );
+      const generated = results.filter(Boolean);
 
       if (generated.length < 2) {
-        throw new Error('Fewer than 2 reports were generated; cannot compare.');
+        const okNames = new Set(generated.map((g) => g.name));
+        const failed = projectList.map((p) => p.name).filter((n) => !okNames.has(n));
+        throw new Error(
+          `Fewer than 2 reports were generated; cannot compare. Failed/skipped: ${failed.join(', ') || 'none'}. ` +
+          `See the "[name] Failed" line(s) above for the cause (common ones: out of disk space in the working dir, ` +
+          `clone/auth failure, or a missing baseline ref). Try a disk-backed --working-dir if the default temp is a small tmpfs.`
+        );
       }
 
       // 2. Compare: 2 projects -> a single pair; >2 -> first-vs-rest.

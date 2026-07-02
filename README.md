@@ -279,6 +279,10 @@ dependency-change-report projects
 
 For each project it: resolves a directory (uses the local `path` if it's a checkout, otherwise clones `repo` into a working dir), reads **that project's own `.dcr.json`** for baseline/ignore, generates its report, and finally compares the projects (pairwise for two; first-vs-rest for more). Outputs `compare-<a>-vs-<b>.json`/`.md` to `--output-dir` (default: current directory).
 
+Projects are generated **in parallel** by default (up to 4 at once; `--concurrency 1` for serial with progress bars). `projects` mode also **ignores devDependencies by default** — a repo can opt back in with `"ignoreDev": false` in its own `.dcr.json`.
+
+Work happens in a disk-backed cache dir (`~/.cache/dependency-change-report-nodejs`), not the system temp dir, because each project installs `node_modules` for two versions. To keep peak disk small, `projects` mode installs one version at a time, deletes the older version's `node_modules` once its metadata is read, and prunes the newer version's `node_modules` down to just `package.json` files (all the tool needs afterward). Each project's scratch dir is then deleted right after its `report.json` is saved to `--output-dir`. Override the location with `--working-dir <path>`.
+
 Project fields: `name` (required), `path` (local checkout), `repo` (git URL, cloned if no usable `path`), `ref`/`baseline` (optional per-project overrides). The `compare` block maps to the [`dependency-change-compare` options](#usage) (`filter`→exclude, `only`→include, `ignoreDev`, `includeNested`).
 
 ## Requirements
