@@ -68,6 +68,23 @@ describe('dependency-comparer', () => {
     assert.strictEqual(result.modified[0].changeType, 'namespace');
   });
 
+  it('falls back to lockfile versions when the dep tree omits them', () => {
+    // npm ls can list a node without a version (deduped/unmet); the added/removed
+    // entry should still get a version from packageVersions (the lockfile).
+    const oldD = { 'gone': {} };            // removed, no version in tree
+    const newD = { 'fresh': {} };           // added, no version in tree
+    const packageVersions = {
+      'fresh': { newVersion: '2.3.4', changeType: 'added', devDep: false },
+      'gone': { oldVersion: '9.8.7', changeType: 'removed', devDep: false },
+    };
+    const result = compareDependencies(oldD, newD, packageVersions);
+
+    assert.strictEqual(result.added[0].name, 'fresh');
+    assert.strictEqual(result.added[0].version, '2.3.4');
+    assert.strictEqual(result.removed[0].name, 'gone');
+    assert.strictEqual(result.removed[0].version, '9.8.7');
+  });
+
   it('should handle empty dependency objects', () => {
     const result = compareDependencies({}, {});
     
