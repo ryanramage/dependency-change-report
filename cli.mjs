@@ -9,7 +9,7 @@ import { resolveBaseline, readDcrConfig, resolveIgnoreDev, resolveSkipFullInvent
 import { cloneRepo } from './lib/git/repository.mjs';
 import { compareReports } from './lib/compare-reports.mjs';
 import { generateCompareMarkdown } from './lib/generate-compare-markdown.mjs';
-import { dirname, join, basename, resolve } from 'path';
+import { dirname, join, basename, resolve, relative } from 'path';
 import { command, flag, arg, summary, rest } from 'paparam'
 import envPaths from 'env-paths';
 import PQueue from 'p-queue';
@@ -439,7 +439,10 @@ const resolveProjectDir = async (project, workingDir) => {
  * suppresses the interactive progress bar and caps changelog concurrency so
  * parallel analyses don't fight over the terminal or hit GitHub rate limits.
  */
-const generateProjectReport = async (project, workingDir, parallelism, outputDir) => {
+/** Make a value safe to use as a single path segment (refs may contain slashes). */
+const safeSeg = (v) => String(v).replace(/[\/\\:*?"<>|]/g, '-');
+
+const generateProjectReport = async (project, workingDir, parallelism, outputDir, runTs) => {
   const label = `[${project.name}]`;
   try {
     const repoDir = await resolveProjectDir(project, workingDir);
@@ -470,20 +473,24 @@ const generateProjectReport = async (project, workingDir, parallelism, outputDir
       { repoDir, extraIgnore, quietProgress, changelogConcurrency, minimizeDisk: true }
     );
 
-    // Save report.json to the output dir, then delete the heavy scratch dir
-    // (worktrees + node_modules). Keeps disk bounded across projects/runs —
-    // otherwise each run leaves a full node_modules copy behind and fills the
-    // working dir (often a small tmpfs).
-    const savedPath = join(outputDir, `${project.name}.report.json`);
-    await copyFile(report.reportPath, savedPath);
+    // Publish layout: <outputDir>/<project>/<older>..<newer>__<ts>/report.{json,md}
+    const dir = join(outputDir, safeSeg(project.name), `${safeSeg(older)}..${safeSeg(newer)}__${runTs}`);
+    await mkdir(dir, { recursive: true });
+    const jsonPath = join(dir, 'report.json');
+    const mdPath = join(dir, 'report.md');
+    await copyFile(report.reportPath, jsonPath);
+    await generateMarkdownReport(jsonPath, mdPath);
+
+    // Delete the heavy scratch dir (worktrees + node_modules) now that the
+    // report is saved, so disk stays bounded across projects/runs.
     try {
       await rm(dirname(report.reportPath), { recursive: true, force: true });
     } catch (error) {
       console.warn(`${label} Could not clean scratch dir: ${error.message}`);
     }
 
-    console.log(`${label} Report ready.`);
-    return { name: project.name, path: savedPath };
+    console.log(`${label} Report ready: ${jsonPath}`);
+    return { name: project.name, older, newer, jsonPath, mdPath, dir };
   } catch (error) {
     console.error(`${label} Failed: ${error.message}`);
     return null;
@@ -534,13 +541,17 @@ const projects = command(
         projectList.length
       ));
 
+      // One timestamp for the whole run, so all of this run's project reports
+      // and the comparison share it (and sort/correlate together).
+      const runTs = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+
       // 1. Generate each project's report (reading its OWN .dcr.json), in
       // parallel up to `parallelism`. Promise.all over the mapped queue tasks
       // preserves input order, so generated[0] stays the first-listed project.
       console.log(`Generating ${projectList.length} reports (concurrency: ${parallelism})...`);
       const queue = new PQueue({ concurrency: parallelism });
       const results = await Promise.all(
-        projectList.map((project) => queue.add(() => generateProjectReport(project, workingDir, parallelism, outputDir)))
+        projectList.map((project) => queue.add(() => generateProjectReport(project, workingDir, parallelism, outputDir, runTs)))
       );
       const generated = results.filter(Boolean);
 
@@ -555,24 +566,31 @@ const projects = command(
       }
 
       // 2. Compare: 2 projects -> a single pair; >2 -> first-vs-rest.
-      const wantMarkdown = (!projects.flags.html && !projects.flags.text) || projects.flags.markdown;
+      // Layout: compare/<a>-vs-<b>/<newerA>__<newerB>__<ts>/report.{json,md}
+      // (the folder names the two compared versions — the actual deliverable).
       const base = generated[0];
       for (let i = 1; i < generated.length; i++) {
         const other = generated[i];
         console.log(`\nComparing ${base.name} vs ${other.name}...`);
-        const result = await compareReports(base.path, other.path, compareOpts);
-        const baseName = `compare-${base.name}-vs-${other.name}`;
+        const result = await compareReports(base.jsonPath, other.jsonPath, compareOpts);
 
-        const jsonPath = join(outputDir, `${baseName}.json`);
+        const dir = join(
+          outputDir, 'compare', `${safeSeg(base.name)}-vs-${safeSeg(other.name)}`,
+          `${safeSeg(base.newer)}__${safeSeg(other.newer)}__${runTs}`
+        );
+        await mkdir(dir, { recursive: true });
+
+        const jsonPath = join(dir, 'report.json');
         await writeFile(jsonPath, JSON.stringify(result, null, 2));
         console.log(`📄 JSON: ${jsonPath}`);
         console.log(`   Discrepancies: ${result.summary.totalDiscrepancies}, matching: ${result.summary.totalMatching}`);
 
-        if (wantMarkdown) {
-          const mdPath = join(outputDir, `${baseName}.md`);
-          await generateCompareMarkdown(result, mdPath);
-          console.log(`📝 Markdown: ${mdPath}`);
-        }
+        // Back-links from the compare report to each project's report.md,
+        // relative to the compare report's own location.
+        const mdPath = join(dir, 'report.md');
+        const projectLinks = [relative(dir, base.mdPath), relative(dir, other.mdPath)];
+        await generateCompareMarkdown(result, mdPath, { projectLinks });
+        console.log(`📝 Markdown: ${mdPath}`);
       }
 
       console.log('\nProjects comparison complete!');
