@@ -418,7 +418,23 @@ const resolveProjectDir = async (project, workingDir) => {
       }
       if (project.ref) {
         try {
-          await executeCommand('git', ['checkout', project.ref], dest, 60000, `git checkout ${project.ref}`, false);
+          // A previous run's checkout left a local branch named after the ref;
+          // a plain `git checkout <ref>` would reuse it as-is even though the
+          // fetch above moved origin/<ref> forward, so the analysis would run
+          // against a stale commit. When the ref is a remote branch, force the
+          // local branch to the remote tip; tags/SHAs get a plain checkout.
+          let isRemoteBranch = false;
+          try {
+            await executeCommand('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${project.ref}`], dest, 60000, `check origin/${project.ref}`, false);
+            isRemoteBranch = true;
+          } catch (error) {
+            // Not a remote branch — fall through to a plain checkout.
+          }
+          if (isRemoteBranch) {
+            await executeCommand('git', ['checkout', '-B', project.ref, `origin/${project.ref}`], dest, 60000, `git checkout -B ${project.ref} origin/${project.ref}`, false);
+          } else {
+            await executeCommand('git', ['checkout', project.ref], dest, 60000, `git checkout ${project.ref}`, false);
+          }
         } catch (error) {
           console.warn(`Checkout of ${project.ref} failed for ${project.name}: ${error.message}`);
         }
